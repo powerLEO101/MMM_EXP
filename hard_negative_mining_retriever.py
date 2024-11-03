@@ -49,7 +49,7 @@ class MyDataLoader:
         result = []
         for arg in args:
             result.append(self.tokenizer(arg, padding=True, return_tensors='pt'))
-        return result
+        return *result
 
     def next_batch(self):
         batch_text, batch_mis = [], []
