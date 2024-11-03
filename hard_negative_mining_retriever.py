@@ -49,7 +49,7 @@ class MyDataLoader:
         result = []
         for arg in args:
             result.append(self.tokenizer(arg, padding=True, return_tensors='pt'))
-        return *result
+        return result
 
     def next_batch(self):
         batch_text, batch_mis = [], []
@@ -63,7 +63,7 @@ class MyDataLoader:
         batch_mis.extend(supplemental_misconceptions)
         # batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
         batch_text = self.tokenizer(batch_text, max_length=512, padding='max_length', return_tensors='pt')
-        batch_mis = self.tokenize_everything(batch_mis)
+        batch_mis = self.tokenize_everything(batch_mis)[0]
         
         return batch_text, batch_mis
 
