@@ -61,9 +61,7 @@ class MyDataLoader:
         # should not sample distractions in batch because some misconception never appear in training data
         supplemental_misconceptions = self.misconceptions.sample(self.supplemental_batch_size)['MisconceptionName'].values.tolist()
         batch_mis.extend(supplemental_misconceptions)
-        # batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
-        batch_text = self.tokenizer(batch_text, max_length=512, padding='max_length', return_tensors='pt')
-        batch_mis = self.tokenize_everything(batch_mis)[0]
+        batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
         
         return batch_text, batch_mis
 
@@ -251,7 +249,8 @@ def print_args():
     for k, v in args.__dict__.items():
         print(k,':', v)
     print('Actual batch size', ':', args.batch_size * args.grad_accum)
-    print('------ End of printing args ------')
+    pd.from_dict(args.__dict__).to_csv(f'{save_path}/args.csv', index=False)
+    print(f'------ Args are saved to {save_path}/args.csv ------')
 
 def main():
     model = MyEmbeddingModel(args.model_name)
