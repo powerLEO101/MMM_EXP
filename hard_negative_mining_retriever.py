@@ -209,7 +209,8 @@ def parse_args():
     parser.add_argument('--base_path', type=str, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
     parser.add_argument('--batch_size', type=int, help='Batch size', default=2)
-    parser.add_argument('--lr', type=float, help='Batch size', default=3e-4)
+    parser.add_argument('--lr', type=float, help='Learning rate', default=3e-4)
+    parser.add_argument('--total_step', type=int, help='Total step', default=500)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
@@ -224,7 +225,7 @@ def main():
                               )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
-    model = train_loop(model, dataloader, optimizer, 10)
+    model = train_loop(model, dataloader, optimizer, args.total_step)
     print(f'!@#!@# Experiment finished, saving checkpoint to {save_path} !@#!@#')
     model.save_pretrained(save_path)
 
