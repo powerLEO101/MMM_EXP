@@ -1,3 +1,4 @@
+import os
 import argparse
 import pandas as pd
 import numpy as np
@@ -206,6 +207,7 @@ def parse_args():
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
     parser.add_argument('--batch_size', type=int, help='Batch size', default=2)
     parser.add_argument('--lr', type=float, help='Batch size', default=3e-4)
+    parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
 def main():
@@ -219,9 +221,18 @@ def main():
                               )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
-    train_loop(model, dataloader, optimizer, 10)
+    model = train_loop(model, dataloader, optimizer, 10)
+    print(f'!@#!@# Experiment finished, saving checkpoint to {save_path} !@#!@#')
+    model.save_pretrained(save_path)
 
 if __name__ == '__main__':
     device='cuda:0'
     args = parse_args()
+    save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
+    print(f'!@#!@# Executing experiment {args.exp_id} !@#!@#')
+    if not os.path.exists(save_path)
+        os.makedirs(save_path)
+        print(f'!@#!@# New experiment, creating save_path {save_path} !@#!@#')
+    else:
+        print(f'!@#!@# Rerunning existing experiment, overwriting {save_path} !@#!@#')
     main()
