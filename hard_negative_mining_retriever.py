@@ -1,4 +1,5 @@
 import os
+import math
 import argparse
 import pandas as pd
 import numpy as np
@@ -138,6 +139,20 @@ class MyEmbeddingModel(nn.Module):
 
 # --- Training Loop ---
 
+def get_lr(it):
+    # https://github.com/karpathy/build-nanogpt/blob/master/train_gpt2.py
+    # 1) linear warmup for warmup_iters steps
+    if it < args.warmup_steps:
+        return args.max_lr * (it+1) / args.warmup_steps
+    # 2) if it > lr_decay_iters, return min learning rate
+    if it > args.total_step:
+        return min_lr
+    # 3) in between, use cosine decay down to min learning rate
+    decay_ratio = (it - args.warmup_steps) / (args.max_steps - args.warmup_steps)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff starts at 1 and goes to 0
+    return args.min_lr + coeff * (args.max_lr - args.min_lr)
+
 def move_to_device(x, device):
     if isinstance(x, dict):
         return {k : v.to(device) for k, v in x.items()}
@@ -147,10 +162,10 @@ def move_to_device(x, device):
         return x.to(device)
 
 def train_loop(model, dataloader, optimizer, total_steps):
-    model.train()
     for step in range(int(total_steps / args.grad_accum)):
         time_start = time()
 
+        model.train()
         optimizer.zero_grad()
         loss_accum = 0.0
         for _ in range(args.grad_accum):
@@ -161,10 +176,14 @@ def train_loop(model, dataloader, optimizer, total_steps):
             loss = model(batch_text, batch_mis) / args.grad_accum
             loss.backward()
             loss_accum += loss.item()
+
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        lr = get_lr(step)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
         optimizer.step()
 
-        print(f'step:\t{step}/{total_steps} | loss:\t{loss_accum : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time() - time_start : .2f} s')
+        print(f'step:\t{step}/{total_steps} | lr:\t{lr : .4e} |loss:\t{loss_accum : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time() - time_start : .2f} s')
     return model
 
 # --- Main ---
@@ -193,7 +212,7 @@ def get_optimizer_grouped_parameters(
                         ],
                 "weight_decay": weight_decay,
                 # "lr": lora_lr
-                # we set learning rate later?
+                # set learning rate later
                 },
             {
                 "params": [
@@ -223,6 +242,7 @@ def print_args():
     for k, v in args.items():
         print(k, '\t', v)
     print('Actual batch size', '\t', args.batch_size * args.grad_accum)
+    print('!@#!@# End of printing args !@#!@#')
 
 def main():
     model = MyEmbeddingModel(args.model_name)
@@ -241,6 +261,7 @@ def main():
 
 if __name__ == '__main__':
     args = parse_args()
+    print_args()
     device='cuda:0'
     save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
     print(f'!@#!@# Executing experiment {args.exp_id} !@#!@#')
