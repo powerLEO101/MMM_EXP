@@ -1,4 +1,5 @@
 import os
+import sys
 import math
 import argparse
 import pandas as pd
@@ -162,6 +163,7 @@ def move_to_device(x, device):
         return x.to(device)
 
 def train_loop(model, dataloader, optimizer, total_steps):
+    df_log = []
     for step in range(int(total_steps / args.grad_accum)):
         time_start = time()
 
@@ -183,8 +185,10 @@ def train_loop(model, dataloader, optimizer, total_steps):
             param_group['lr'] = lr
         optimizer.step()
 
-        print(f'step:\t{step}/{total_steps} | lr:\t{lr : .4e} |loss:\t{loss_accum : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time() - time_start : .2f} s')
-    return model
+        time_elapsed = time() - time_start
+        print(f'step:\t{step}/{total_steps} | lr:\t{lr : .4e} | loss:\t{loss_accum : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time_elapsed : .2f} s')
+        df_log.append([step, lr, loss_accum, grad_norm, time_elapsed])
+    return model, pd.DataFrame(df_log, columns=['step', 'lr', 'loss_accum', 'grad_norm', 'time_elapsed'])
 
 # --- Main ---
 
@@ -235,16 +239,16 @@ def parse_args():
     parser.add_argument('--max_lr', type=float, help='Max learning rate', default=5e-4)
     parser.add_argument('--min_lr', type=float, help='Min learning rate', default=5e-5)
     parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
-    parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=100)
-    parser.add_argument('--total_step', type=int, help='Total step', default=500)
+    parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
+    parser.add_argument('--total_step', type=int, help='Total step', default=100)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
 def print_args():
     print('------ Printing args ------')
     for k, v in args.__dict__.items():
-        print(k, ':            ', v)
-    print('Actual batch size', ':        ', args.batch_size * args.grad_accum)
+        print(k,':', v)
+    print('Actual batch size', ':', args.batch_size * args.grad_accum)
     print('------ End of printing args ------')
 
 def main():
@@ -258,9 +262,10 @@ def main():
                               )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
-    model = train_loop(model, dataloader, optimizer, args.total_step)
+    model, df_log = train_loop(model, dataloader, optimizer, args.total_step)
     print(f'------ Experiment finished, saving checkpoint to {save_path} ------')
     model.save_pretrained(save_path)
+    df_log.to_csv(f'{save_path}/df_log.csv', index=False)
 
 if __name__ == '__main__':
     args = parse_args()
@@ -272,5 +277,8 @@ if __name__ == '__main__':
         os.makedirs(save_path)
         print(f'------ New experiment, creating save_path {save_path} ------')
     else:
+        import click
+        if click.confirm('Save path has already been created, abort?', default=True):
+            sys.exit(0)
         print(f'------ Rerunning existing experiment, overwriting {save_path} ------')
     main()
