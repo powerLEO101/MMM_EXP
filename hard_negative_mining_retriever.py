@@ -148,7 +148,7 @@ def get_lr(it):
     if it > args.total_step:
         return min_lr
     # 3) in between, use cosine decay down to min learning rate
-    decay_ratio = (it - args.warmup_steps) / (args.max_steps - args.warmup_steps)
+    decay_ratio = (it - args.warmup_steps) / (args.total_step - args.warmup_steps)
     assert 0 <= decay_ratio <= 1
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff starts at 1 and goes to 0
     return args.min_lr + coeff * (args.max_lr - args.min_lr)
@@ -231,18 +231,21 @@ def parse_args():
     parser.add_argument('--base_path', type=str, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
     parser.add_argument('--batch_size', type=int, help='Batch size', default=2)
-    parser.add_argument('--lr', type=float, help='Learning rate', default=3e-4)
+    parser.add_argument('--lr', type=float, help='Learning rate is not used in this code', default=3e-4)
+    parser.add_argument('--max_lr', type=float, help='Max learning rate', default=5e-4)
+    parser.add_argument('--min_lr', type=float, help='Min learning rate', default=5e-5)
     parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
+    parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=100)
     parser.add_argument('--total_step', type=int, help='Total step', default=500)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
 def print_args():
-    print('!@#!@# Printing args !@#!@#')
+    print('------ Printing args ------')
     for k, v in args.__dict__.items():
-        print(k, '\t', v)
-    print('Actual batch size', '\t', args.batch_size * args.grad_accum)
-    print('!@#!@# End of printing args !@#!@#')
+        print(k, ':            ', v)
+    print('Actual batch size', ':        ', args.batch_size * args.grad_accum)
+    print('------ End of printing args ------')
 
 def main():
     model = MyEmbeddingModel(args.model_name)
@@ -256,7 +259,7 @@ def main():
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
     model = train_loop(model, dataloader, optimizer, args.total_step)
-    print(f'!@#!@# Experiment finished, saving checkpoint to {save_path} !@#!@#')
+    print(f'------ Experiment finished, saving checkpoint to {save_path} ------')
     model.save_pretrained(save_path)
 
 if __name__ == '__main__':
@@ -264,10 +267,10 @@ if __name__ == '__main__':
     print_args()
     device='cuda:0'
     save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
-    print(f'!@#!@# Executing experiment {args.exp_id} !@#!@#')
+    print(f'------ Executing experiment {args.exp_id} ------')
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-        print(f'!@#!@# New experiment, creating save_path {save_path} !@#!@#')
+        print(f'------ New experiment, creating save_path {save_path} ------')
     else:
-        print(f'!@#!@# Rerunning existing experiment, overwriting {save_path} !@#!@#')
+        print(f'------ Rerunning existing experiment, overwriting {save_path} ------')
     main()
