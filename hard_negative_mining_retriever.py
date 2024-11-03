@@ -196,10 +196,10 @@ def get_optimizer_grouped_parameters(
 
 def parse_args():
     parser = argparse.ArgumentParser( description='Script with base path and model name arguments')
-    parser.add_argument('--base_path', type=str, required=True, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
-    parser.add_argument('--model_name', type=str, required=True, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
-    parser.add_argument('--batch_size', type=int, required=True, help='Batch size', default=16)
-    parser.add_argument('--lr', type=float, required=True, help='Batch size', default=3e-4)
+    parser.add_argument('--base_path', type=str, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
+    parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
+    parser.add_argument('--batch_size', type=int, help='Batch size', default=16)
+    parser.add_argument('--lr', type=float, help='Batch size', default=3e-4)
     return parser.parse_args()
 
 def main():
