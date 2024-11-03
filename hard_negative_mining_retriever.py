@@ -13,6 +13,7 @@ from peft import (
     get_peft_model_state_dict,
     set_peft_model_state_dict,
 )
+import bitsandbytes as bnb
 
 # --- Dataset ---
 
@@ -203,7 +204,7 @@ def parse_args():
     parser = argparse.ArgumentParser( description='Script with base path and model name arguments')
     parser.add_argument('--base_path', type=str, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
-    parser.add_argument('--batch_size', type=int, help='Batch size', default=8)
+    parser.add_argument('--batch_size', type=int, help='Batch size', default=2)
     parser.add_argument('--lr', type=float, help='Batch size', default=3e-4)
     return parser.parse_args()
 
@@ -214,9 +215,10 @@ def main():
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                               batch_size=args.batch_size,
                               model_name=args.model_name,
+                              supplemental_batch_size=16 - args.batch_size,
                               )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
-    optimizer = torch.optim.AdamW(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8, fused=True)
+    optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8, fused=True)
     train_loop(model, dataloader, optimizer, 10)
 
 if __name__ == '__main__':
