@@ -156,7 +156,7 @@ def train_loop(model, dataloader, optimizer, total_steps):
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
-        print(f'step:\t{step}/{total_steps} | loss:\t{loss.detach().item()} | grad_norm:\t{grad_norm} | time:\t{time() - time_start}')
+        print(f'step:\t{step}/{total_steps} | loss:\t{loss.detach().item() : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time() - time_start : .2f} s')
     return model
 
 # --- Main ---
@@ -203,7 +203,7 @@ def parse_args():
     parser = argparse.ArgumentParser( description='Script with base path and model name arguments')
     parser.add_argument('--base_path', type=str, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
-    parser.add_argument('--batch_size', type=int, help='Batch size', default=16)
+    parser.add_argument('--batch_size', type=int, help='Batch size', default=8)
     parser.add_argument('--lr', type=float, help='Batch size', default=3e-4)
     return parser.parse_args()
 
