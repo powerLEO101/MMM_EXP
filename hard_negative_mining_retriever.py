@@ -218,7 +218,7 @@ def main():
                               supplemental_batch_size=16 - args.batch_size,
                               )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
-    optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8, fused=True)
+    optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
     train_loop(model, dataloader, optimizer, 10)
 
 if __name__ == '__main__':
