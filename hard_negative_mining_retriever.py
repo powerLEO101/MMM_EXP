@@ -250,6 +250,7 @@ def print_args():
         print(k,':', v)
     print('Actual batch size', ':', args.batch_size * args.grad_accum)
     import csv
+    data = args.__dict__
     with open(f"{save_path}/args.csv", "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(data.keys())
