@@ -249,7 +249,12 @@ def print_args():
     for k, v in args.__dict__.items():
         print(k,':', v)
     print('Actual batch size', ':', args.batch_size * args.grad_accum)
-    pd.DataFrame.from_dict(args.__dict__).to_csv(f'{save_path}/args.csv', index=False)
+    import csv
+    with open(f"{save_path}/args.csv", "w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(data.keys())
+        for row in zip(*data.values()):
+            writer.writerow(row)
     print(f'------ Args are saved to {save_path}/args.csv ------')
 
 def main():
@@ -270,7 +275,6 @@ def main():
 
 if __name__ == '__main__':
     args = parse_args()
-    print_args()
     device='cuda:0'
     save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
     print(f'------ Executing experiment {args.exp_id} ------')
@@ -282,4 +286,5 @@ if __name__ == '__main__':
         if click.confirm('Save path has already been created, abort?', default=True):
             sys.exit(0)
         print(f'------ Rerunning existing experiment, overwriting {save_path} ------')
+    print_args()
     main()
