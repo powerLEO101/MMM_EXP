@@ -254,8 +254,7 @@ def print_args():
     with open(f"{save_path}/args.csv", "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(data.keys())
-        for row in data.values():
-            writer.writerow(row)
+        writer.writerow(data.values())
     print(f'------ Args are saved to {save_path}/args.csv ------')
 
 def main():
