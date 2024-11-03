@@ -249,7 +249,7 @@ def print_args():
     for k, v in args.__dict__.items():
         print(k,':', v)
     print('Actual batch size', ':', args.batch_size * args.grad_accum)
-    pd.from_dict(args.__dict__).to_csv(f'{save_path}/args.csv', index=False)
+    pd.DataFrame.from_dict(args.__dict__).to_csv(f'{save_path}/args.csv', index=False)
     print(f'------ Args are saved to {save_path}/args.csv ------')
 
 def main():
