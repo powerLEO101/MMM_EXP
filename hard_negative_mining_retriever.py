@@ -164,7 +164,7 @@ def move_to_device(x, device):
 
 def train_loop(model, dataloader, optimizer, total_steps):
     df_log = []
-    for step in range(int(total_steps / args.grad_accum)):
+    for step in range(total_steps):
         time_start = time()
 
         model.train()
