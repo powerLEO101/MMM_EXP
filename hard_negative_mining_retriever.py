@@ -230,7 +230,7 @@ if __name__ == '__main__':
     args = parse_args()
     save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
     print(f'!@#!@# Executing experiment {args.exp_id} !@#!@#')
-    if not os.path.exists(save_path)
+    if not os.path.exists(save_path):
         os.makedirs(save_path)
         print(f'!@#!@# New experiment, creating save_path {save_path} !@#!@#')
     else:
