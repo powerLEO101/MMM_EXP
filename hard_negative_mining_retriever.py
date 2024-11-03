@@ -204,6 +204,7 @@ def parse_args():
 
 def main():
     model = MyEmbeddingModel(args.model_name)
+    model = model.to(device)
     dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv',
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                               batch_size=args.batch_size,
@@ -214,5 +215,6 @@ def main():
     train_loop(model, dataloader, optimizer, 10)
 
 if __name__ == '__main__':
+    device='cuda:0'
     args = parse_args()
     main()
