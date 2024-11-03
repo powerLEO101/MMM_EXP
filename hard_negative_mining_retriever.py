@@ -123,7 +123,6 @@ class MyEmbeddingModel(nn.Module):
         batch_mis = self.encode(batch_mis)
         # sims = F.cosine_similarity(batch_text, batch_mis, dim=-1)
         sims = self.compute_similarity(batch_text, batch_mis) # batch_size, mis_size
-        print(sims.shape)
 
         label = torch.arange(sims.shape[0], dtype=torch.long, device=sims.device)
         # technically the sims here are not logits, they cannot go lower than 0, but 
