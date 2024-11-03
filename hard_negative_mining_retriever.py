@@ -17,6 +17,38 @@ from peft import (
     set_peft_model_state_dict,
 )
 import bitsandbytes as bnb
+from torch.distributed import init_process_group, destroy_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+
+ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
+if ddp:
+    # use of DDP atm demands CUDA, we set the device appropriately according to rank
+    assert torch.cuda.is_available(), "for now i think we need CUDA for DDP"
+    init_process_group(backend='nccl')
+    ddp_rank = int(os.environ['RANK'])
+    ddp_local_rank = int(os.environ['LOCAL_RANK'])
+    ddp_world_size = int(os.environ['WORLD_SIZE'])
+    device = f'cuda:{ddp_local_rank}'
+    torch.cuda.set_device(device)
+    master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
+else:
+    # vanilla, non-DDP run
+    ddp_rank = 0
+    ddp_local_rank = 0
+    ddp_world_size = 1
+    master_process = True
+    # attempt to autodetect device
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    print(f"using device: {device}")
+
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(1337)
 
 # --- Dataset ---
 
@@ -170,24 +202,31 @@ def train_loop(model, dataloader, optimizer, total_steps):
         model.train()
         optimizer.zero_grad()
         loss_accum = 0.0
-        for _ in range(args.grad_accum):
+        for micro_step in range(args.grad_accum):
             batch_text, batch_mis = dataloader.next_batch()
             batch_text = move_to_device(batch_text, device)
             batch_mis = move_to_device(batch_mis, device)
 
+            if ddp: # actually, I don't understand why can't I just do a full backward at the end
+                    # but lets just follow the nano gpt 
+                model.require_backward_grad_sync = (micro_step == args.grad_accum - 1)
             loss = model(batch_text, batch_mis) / args.grad_accum
             loss.backward()
-            loss_accum += loss.item()
+            loss_accum += loss.detach()
 
         grad_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0))
+        # gradient is synced here, so no need to all reduce
         lr = get_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         optimizer.step()
 
-        time_elapsed = time() - time_start
-        print(f'step:\t{step}/{total_steps} | lr:\t{lr : .4e} | loss:\t{loss_accum : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time_elapsed : .2f} s')
-        df_log.append([step, lr, loss_accum, grad_norm, time_elapsed])
+        if ddp:
+            dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
+        if master_process:
+            time_elapsed = time() - time_start
+            print(f'step:\t{step}/{total_steps} | lr:\t{lr : .4e} | loss:\t{loss_accum.item() : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time_elapsed : .2f} s')
+            df_log.append([step, lr, loss_accum.item(), grad_norm, time_elapsed])
     return model, pd.DataFrame(df_log, columns=['step', 'lr', 'loss_accum', 'grad_norm', 'time_elapsed'])
 
 # --- Main ---
@@ -234,7 +273,7 @@ def parse_args():
     parser = argparse.ArgumentParser( description='Script with base path and model name arguments')
     parser.add_argument('--base_path', type=str, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
-    parser.add_argument('--batch_size', type=int, help='Batch size', default=2)
+    parser.add_argument('--batch_size', type=int, help='Batch size', default=4)
     parser.add_argument('--lr', type=float, help='Learning rate is not used in this code', default=3e-4)
     parser.add_argument('--max_lr', type=float, help='Max learning rate', default=5e-4)
     parser.add_argument('--min_lr', type=float, help='Min learning rate', default=5e-5)
@@ -260,31 +299,39 @@ def print_args():
 def main():
     model = MyEmbeddingModel(args.model_name)
     model = model.to(device)
+    assert args.batch_size % ddp_world_size == 0
     dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv',
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
-                              batch_size=args.batch_size,
+                              batch_size=int(args.batch_size / ddp_world_size),
                               model_name=args.model_name,
                               supplemental_batch_size=16 - args.batch_size,
+                              seed=42 + ddp_rank # ensure dataloader loads different batch in ddp
                               )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
     model, df_log = train_loop(model, dataloader, optimizer, args.total_step)
-    print(f'------ Experiment finished, saving checkpoint to {save_path} ------')
-    model.save_pretrained(save_path)
-    df_log.to_csv(f'{save_path}/df_log.csv', index=False)
+    if master_process:
+        print(f'------ Experiment finished, saving checkpoint to {save_path} ------')
+        model.save_pretrained(save_path)
+        df_log.to_csv(f'{save_path}/df_log.csv', index=False)
 
 if __name__ == '__main__':
     args = parse_args()
-    device='cuda:0'
     save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
-    print(f'------ Executing experiment {args.exp_id} ------')
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-        print(f'------ New experiment, creating save_path {save_path} ------')
-    else:
-        import click
-        if click.confirm('Save path has already been created, abort?', default=True):
-            sys.exit(0)
-        print(f'------ Rerunning existing experiment, overwriting {save_path} ------')
-    print_args()
+    if master_process:
+        print(f'------ Executing experiment {args.exp_id} ------')
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+            print(f'------ New experiment, creating save_path {save_path} ------')
+        else:
+            import click
+            if click.confirm('Save path has already been created, abort?', default=True):
+                if ddp:
+                    destroy_process_group()
+                sys.exit(0)
+            print(f'------ Rerunning existing experiment, overwriting {save_path} ------')
+        print_args()
     main()
+
+if ddp:
+    destroy_process_group()
