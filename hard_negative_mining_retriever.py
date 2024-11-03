@@ -148,8 +148,8 @@ def train_loop(model, dataloader, optimizer, total_steps):
 
         optimizer.zero_grad()
         batch_text, batch_mis = dataloader.next_batch()
-        batch_text = move_to_device(batch_text)
-        batch_mis = move_to_device(batch_mis)
+        batch_text = move_to_device(batch_text, device)
+        batch_mis = move_to_device(batch_mis, device)
 
         loss = model(batch_text, batch_mis)
         loss.backward()
