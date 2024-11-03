@@ -148,20 +148,23 @@ def move_to_device(x, device):
 
 def train_loop(model, dataloader, optimizer, total_steps):
     model.train()
-    for step in range(total_steps):
+    for step in range(int(total_steps / args.grad_accum)):
         time_start = time()
 
         optimizer.zero_grad()
-        batch_text, batch_mis = dataloader.next_batch()
-        batch_text = move_to_device(batch_text, device)
-        batch_mis = move_to_device(batch_mis, device)
+        loss_accum = 0.0
+        for _ in range(args.grad_accum):
+            batch_text, batch_mis = dataloader.next_batch()
+            batch_text = move_to_device(batch_text, device)
+            batch_mis = move_to_device(batch_mis, device)
 
-        loss = model(batch_text, batch_mis)
-        loss.backward()
+            loss = model(batch_text, batch_mis) / args.grad_accum
+            loss.backward()
+            loss_accum += loss.item()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
-        print(f'step:\t{step}/{total_steps} | loss:\t{loss.detach().item() : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time() - time_start : .2f} s')
+        print(f'step:\t{step}/{total_steps} | loss:\t{loss_accum : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time() - time_start : .2f} s')
     return model
 
 # --- Main ---
@@ -210,9 +213,16 @@ def parse_args():
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
     parser.add_argument('--batch_size', type=int, help='Batch size', default=2)
     parser.add_argument('--lr', type=float, help='Learning rate', default=3e-4)
+    parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
     parser.add_argument('--total_step', type=int, help='Total step', default=500)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
+
+def print_args():
+    print('!@#!@# Printing args !@#!@#')
+    for k, v in args.items():
+        print(k, '\t', v)
+    print('Actual batch size', '\t', args.batch_size * args.grad_accum)
 
 def main():
     model = MyEmbeddingModel(args.model_name)
@@ -230,8 +240,8 @@ def main():
     model.save_pretrained(save_path)
 
 if __name__ == '__main__':
-    device='cuda:0'
     args = parse_args()
+    device='cuda:0'
     save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
     print(f'!@#!@# Executing experiment {args.exp_id} !@#!@#')
     if not os.path.exists(save_path):
