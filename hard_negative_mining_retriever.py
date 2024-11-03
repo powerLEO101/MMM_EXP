@@ -239,7 +239,7 @@ def parse_args():
 
 def print_args():
     print('!@#!@# Printing args !@#!@#')
-    for k, v in args.items():
+    for k, v in dict(args).items():
         print(k, '\t', v)
     print('Actual batch size', '\t', args.batch_size * args.grad_accum)
     print('!@#!@# End of printing args !@#!@#')
