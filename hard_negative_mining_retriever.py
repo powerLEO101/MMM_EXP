@@ -331,6 +331,7 @@ if __name__ == '__main__':
                 sys.exit(0)
             print(f'------ Rerunning existing experiment, overwriting {save_path} ------')
         print_args()
+    dist.barrier()
     main()
 
 if ddp:
