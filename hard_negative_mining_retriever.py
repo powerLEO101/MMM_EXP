@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, BitsAndBytesConfig
 from time import time
 from peft import (
     LoraConfig,
@@ -13,7 +13,6 @@ from peft import (
     get_peft_model_state_dict,
     set_peft_model_state_dict,
 )
-
 
 # --- Dataset ---
 
@@ -66,7 +65,13 @@ class MyDataLoader:
 class MyEmbeddingModel(nn.Module):
     def __init__(self, model_name):
         super().__init__()
-        self.embed_model = AutoModel.from_pretrained(model_name)
+        bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16
+                )
+        self.embed_model = AutoModel.from_pretrained(model_name, quantization_config=bnb_config)
         config = LoraConfig(
             r=64,
             lora_alpha=128,
