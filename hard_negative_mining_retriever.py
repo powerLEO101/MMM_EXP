@@ -133,6 +133,9 @@ class MyEmbeddingModel(nn.Module):
         loss = F.cross_entropy(sims, label)
         return loss
 
+    def save_pretrained(self, path):
+        self.embed_model.save_pretrained(path)
+
 # --- Training Loop ---
 
 def move_to_device(x, device):
