@@ -90,6 +90,7 @@ class MyDataLoader:
             batch_text.append(self.data.iloc[idx]['text'])
             batch_mis.append(self.data.iloc[idx]['target'])
         
+        print(batch_text)
         # should not sample distractions in batch because some misconception never appear in training data
         supplemental_misconceptions = self.misconceptions.sample(self.supplemental_batch_size)['MisconceptionName'].values.tolist()
         batch_mis.extend(supplemental_misconceptions)
@@ -325,7 +326,7 @@ if __name__ == '__main__':
             print(f'------ New experiment, creating save_path {save_path} ------')
         else:
             import click
-            if click.confirm('Save path has already been created, abort?', default=True):
+            if click.confirm('Save path has already been created, abort?', default=False):
                 if ddp:
                     destroy_process_group()
                 sys.exit(0)
