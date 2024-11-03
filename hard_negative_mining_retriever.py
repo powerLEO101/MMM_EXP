@@ -73,8 +73,8 @@ class MyEmbeddingModel(nn.Module):
                 )
         self.embed_model = AutoModel.from_pretrained(model_name, quantization_config=bnb_config)
         config = LoraConfig(
-            r=64,
-            lora_alpha=128,
+            r=32,
+            lora_alpha=64,
             target_modules=[
                 "q_proj",
                 "k_proj",
@@ -90,6 +90,7 @@ class MyEmbeddingModel(nn.Module):
         )
         self.embed_model = get_peft_model(self.embed_model, config)
         self.embed_model.print_trainable_parameters()
+        self.embed_model.gradient_checkpointing_enable()
 
     def last_token_pool(self, last_hidden_states: Tensor,
                         attention_mask: Tensor) -> Tensor:
