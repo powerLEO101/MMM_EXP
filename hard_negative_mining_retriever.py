@@ -61,7 +61,9 @@ class MyDataLoader:
         # should not sample distractions in batch because some misconception never appear in training data
         supplemental_misconceptions = self.misconceptions.sample(self.supplemental_batch_size)['MisconceptionName'].values.tolist()
         batch_mis.extend(supplemental_misconceptions)
-        batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
+        # batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
+        batch_text = self.tokenizer(batch_text, max_length=512, padding='max_length', return_tensors='pt')
+        batch_mis = self.tokenize_everything(batch_mis)
         
         return batch_text, batch_mis
 
@@ -179,7 +181,7 @@ def train_loop(model, dataloader, optimizer, total_steps):
             loss.backward()
             loss_accum += loss.item()
 
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        grad_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0))
         lr = get_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
