@@ -243,8 +243,8 @@ def evaluate(model, dataloader):
         
     text_embeddings, all_targets = [], []
     for batch_text, batch_label in dataloader.all_text():
-        move_to_device(batch_text, device)
-        move_to_device(batch_label, device) # even though we don't actually need it on gpu
+        batch_text = move_to_device(batch_text, device)
+        batch_label = move_to_device(batch_label, device) # even though we don't actually need it on gpu
                                             # we need to move it because we want to all gather
         text_embedding = model(batch_text)
         text_embedding = ddp_sync_concat_tensor(text_embedding).cpu()
@@ -261,7 +261,7 @@ def evaluate(model, dataloader):
         print('--- Embedding misconceptions ---')
     mis_embeddings = []
     for batch_mis in dataloader.all_misconceptions():
-        move_to_device(batch_mis, device)
+        batch_mis = move_to_device(batch_mis, device)
         mis_embedding = model(batch_mis)
         mis_embedding = ddp_sync_concat_tensor(mis_embedding).cpu()
         mis_embeddings.append(mis_embedding)
