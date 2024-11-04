@@ -20,6 +20,7 @@ import bitsandbytes as bnb
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
+import metrics
 
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
@@ -56,7 +57,7 @@ def create_query_text(subject_name, construct_name, question_text, correct_answe
     return f'Instruct: Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception.\nQuery: \n### Question ###:\n{subject_name}, {construct_name}\n{question_text}\n### Correct Answer ###:\n{correct_answer}\n### Incorrect Answer ###:\n{incorrect_answer}'
 
 class MyDataLoader:
-    def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, supplemental_batch_size=None, seed=42):
+    def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, rank, supplemental_batch_size=None, seed=42):
         train_df = pd.read_csv(train_df_path)
         misconceptions = pd.read_csv(misconceptions_path)
         train_df['correct_answer_text'] = train_df.apply(lambda x : x[f"Answer{x['CorrectAnswer']}Text"], axis=1)
@@ -67,13 +68,14 @@ class MyDataLoader:
                 if np.isnan(row[f'Misconception{choice}Id']): continue
                 query_text = create_query_text(row['SubjectName'], row['ConstructName'], row['QuestionText'], row['correct_answer_text'], row[f'Answer{choice}Text'])
                 query_target = misconceptions.iloc[int(row[f'Misconception{choice}Id'])]['MisconceptionName']
-                self.data.append([idx, choice, query_text, query_target])
-        self.data = pd.DataFrame(self.data, columns=['id', 'choice', 'text', 'target'])
+                self.data.append([idx, choice, query_text, query_target, int(row[f'Misconception{choice}Id'])])
+        self.data = pd.DataFrame(self.data, columns=['id', 'choice', 'text', 'target', 'target_id'])
 
         self.batch_size = batch_size
         self.supplemental_batch_size = int(self.batch_size / 2) if supplemental_batch_size is None else supplemental_batch_size
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.misconceptions = misconceptions
+        self.rank = rank
         self.random = np.random.RandomState(seed)
 
     def tokenize_everything(self, *args):
@@ -90,13 +92,42 @@ class MyDataLoader:
             batch_text.append(self.data.iloc[idx]['text'])
             batch_mis.append(self.data.iloc[idx]['target'])
         
-        print(batch_text)
+        # handle ddp
+        actual_batch_size = int(self.batch_size / ddp_world_size)
+        batch_text = batch_text[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+        batch_mis = batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+
         # should not sample distractions in batch because some misconception never appear in training data
         supplemental_misconceptions = self.misconceptions.sample(self.supplemental_batch_size)['MisconceptionName'].values.tolist()
         batch_mis.extend(supplemental_misconceptions)
         batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
         
         return batch_text, batch_mis
+    
+    def all_text(self):
+        all_text = self.data['text'].values.tolist()
+        all_target = self.data['target_id'].values.tolist()
+        for i in range(0, len(batch_text), self.batch_size):
+            batch_text = all_text[i : min(len(batch_text), i + self.batch_size)]
+            batch_target = all_target[i : min(len(batch_text), i + self.batch_size)]
+
+            actual_batch_size = int(self.batch_size / ddp_world_size)
+            batch_text = batch_text[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+            batch_target = batch_target[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+
+            batch_text = self.tokenize_everything(batch_text)[0]
+            batch_target = torch.tensor(batch_target, dtype=torch.long)
+            yield batch_text, batch_target
+
+    def all_misconceptions(self):
+        batch_mis = self.misconceptions['MisconceptionName'].values.tolist()
+        for i in range(0, len(batch_mis), self.batch_size):
+            batch_mis = all_text[i : min(len(batch_mis), i + self.batch_size)]
+            actual_batch_size = int(self.batch_size / ddp_world_size)
+            batch_mis = batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+            batch_mis = self.tokenize_everything(batch_mis)[0]
+            yield batch_mis
+
 
 # --- Model ---
 class MyEmbeddingModel(nn.Module):
@@ -195,8 +226,92 @@ def move_to_device(x, device):
     else:
         return x.to(device)
 
+def ddp_sync_concat_tensor(x, dim=0):
+    tensor_list = [torch.zeros_like(x, device=device) for _ in range(ddp_world_size)]
+    dist.all_gather(tensor_list, x)
+    tensor_list = torch.cat(tensor_list, dim=dim)
+    return tensor_list
+
+@torch.no_grad()
+def evaluate(model, dataloader):
+    model.eval()
+    if master_process:
+        print('--- Evaluate ---')
+        print('--- Embedding text ---')
+        
+    text_embeddings, all_targets = [], []
+    for batch_text, batch_label in dataloder.all_text():
+        move_to_device(batch_text, device)
+        text_embedding = model(batch_text)
+        text_embedding = ddp_sync_concat_tensor(text_embedding).cpu()
+        batch_label = ddp_sync_concat_tensor(batch_label)
+        all_targets.append(batch_label)
+        text_embeddings.append(text_embedding)
+    text_embeddings = torch.cat(text_embeddings, dim=0)
+    all_targets = torch.cat(all_targets, dim=0)
+
+    if master_process:
+        print('--- Embedding misconceptions ---')
+    mis_embeddings = []
+    for batch_mis in dataloader.all_misconceptions():
+        move_to_device(batch_mis, device)
+        mis_embedding = model(batch_mis)
+        mis_embedding = ddp_sync_concat_tensor(mis_embedding).cpu()
+        mis_embeddings.append(mis_embedding)
+    mis_embeddings = torch.cat(mis_embeddings, dim=0)
+    
+    scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
+    top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
+    top25_ids = top_scores[:, : 25]
+
+    map25_score = metrics.mapk(actual=[[x] for x in all_targets.tolist()],
+                               predicted=top25_ids.tolist())
+    top25_hitrate = sum([(top_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
+    print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
+
+
+class MyLogger:
+    def __init__(self, cumulative, average, literal, log_step_total, log_interval=5):
+        '''
+        cumulative: names for the logging variables that are cumulative, such as time
+        average: names for the logging variables that are average, such as loss
+        '''
+        self.cumulative = cumulative
+        self.average = average
+        self.literal = literal
+        self.data = {x : [] for x in set(cumulative, average)}
+        self.log_step = 0
+        self.log_step_total = log_step_total
+        self.log_interval = log_interval
+
+    def log(self, **arg_dict):
+        for k, v in arg_dict.items():
+            self.data[k].append(v)
+        self.log_step += 1
+        if (self.log_step + 1) % self.log_interval == 0:
+            self.print_log()
+
+    def print_log(self):
+        text = []
+        for c in self.cumulative:
+            text.append(f'{c}:\t{sum(self.data[c][-self.log_interval : ]) : .3f}')
+        for a in self.average:
+            text.append(f'{a}:\t{average(self.data[a][-self.log_interval : ]) : .3f}')
+        for l in self.literal:
+            text.append(f'{l}:\t{self.data[l][-1]}')
+        text = f'{self.log_step}/{self.log_step_total} || ' + ' | '.join(text)
+        print(text)
+
+    def to_csv(self, path):
+        pd.DataFrame.from_dict(self.data).to_csv(path)
+
+
 def train_loop(model, dataloader, optimizer, total_steps):
-    df_log = []
+    logger = MyLogger(cumulative=['time'],
+                      average=['lr', 'loss_accum', 'grad_norm'],
+                      literal=['step'],
+                      log_interval=5,
+                      log_step_total=total_steps)
     for step in range(total_steps):
         time_start = time()
 
@@ -226,9 +341,10 @@ def train_loop(model, dataloader, optimizer, total_steps):
             dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
         if master_process:
             time_elapsed = time() - time_start
-            print(f'step:\t{step}/{total_steps} | lr:\t{lr : .4e} | loss:\t{loss_accum.item() : .4e} | grad_norm:\t{grad_norm : .4e} | time:\t{time_elapsed : .2f} s')
-            df_log.append([step, lr, loss_accum.item(), grad_norm, time_elapsed])
-    return model, pd.DataFrame(df_log, columns=['step', 'lr', 'loss_accum', 'grad_norm', 'time_elapsed'])
+            logger.log(step=step, lr=lr, loss=loss, grad_norm=grad_norm, time=time_elapsed)
+            if (step + 1) % args.ckpt_interval == 0:
+                model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
+    return model, logger
 
 # --- Main ---
 
@@ -281,6 +397,7 @@ def parse_args():
     parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
     parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
     parser.add_argument('--total_step', type=int, help='Total step', default=100)
+    parser.add_argument('--ckpt_interval', type=int, help='Ckpt interval', default=40)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
@@ -303,18 +420,19 @@ def main():
     assert args.batch_size % ddp_world_size == 0
     dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv',
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
-                              batch_size=int(args.batch_size / ddp_world_size),
+                              batch_size=args.batch_size,
                               model_name=args.model_name,
-                              supplemental_batch_size=16 - args.batch_size,
-                              seed=42 + ddp_rank # ensure dataloader loads different batch in ddp
+                              supplemental_batch_size=int(16 - (args.batch_size / ddp_world_size)),
+                              rank=ddp_rank,
+                              seed=42,
                               )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
-    model, df_log = train_loop(model, dataloader, optimizer, args.total_step)
+    model, logger = train_loop(model, dataloader, optimizer, args.total_step)
     if master_process:
         print(f'------ Experiment finished, saving checkpoint to {save_path} ------')
-        model.save_pretrained(save_path)
-        df_log.to_csv(f'{save_path}/df_log.csv', index=False)
+        model.save_pretrained(f'{save_path}/final_checkpoint')
+        logger.to_csv(f'{save_path}/df_log.csv')
 
 if __name__ == '__main__':
     args = parse_args()
