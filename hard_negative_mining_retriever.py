@@ -122,9 +122,9 @@ class MyDataLoader:
             yield batch_text, batch_target
 
     def all_misconceptions(self):
-        batch_mis = self.misconceptions['MisconceptionName'].values.tolist()
-        for i in range(0, len(batch_mis), self.batch_size):
-            batch_mis = all_text[i : min(len(batch_mis), i + self.batch_size)]
+        all_mis = self.misconceptions['MisconceptionName'].values.tolist()
+        for i in range(0, len(all_mis), self.batch_size):
+            batch_mis = all_mis[i : min(len(batch_mis), i + self.batch_size)]
             actual_batch_size = int(self.batch_size / ddp_world_size)
             batch_mis = batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
             batch_mis = self.tokenize_everything(batch_mis)[0]
