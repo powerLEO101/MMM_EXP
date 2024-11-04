@@ -110,8 +110,8 @@ class MyDataLoader:
         all_text = self.data['text'].values.tolist()
         all_target = self.data['target_id'].values.tolist()
         for i in range(0, len(all_text), self.batch_size):
-            batch_text = all_text[i : min(len(batch_text), i + self.batch_size)]
-            batch_target = all_target[i : min(len(batch_text), i + self.batch_size)]
+            batch_text = all_text[i : min(len(all_text), i + self.batch_size)]
+            batch_target = all_target[i : min(len(all_text), i + self.batch_size)]
 
             actual_batch_size = int(self.batch_size / ddp_world_size)
             batch_text = batch_text[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
@@ -421,6 +421,7 @@ def print_args():
     for k, v in args.__dict__.items():
         print(k,':', v)
     print('Actual batch size', ':', args.batch_size * args.grad_accum)
+    print('Batch size per device', ':', args.batch_size / ddp_world_size)
     import csv
     data = args.__dict__
     with open(f"{save_path}/args.csv", "w", newline="") as file:
