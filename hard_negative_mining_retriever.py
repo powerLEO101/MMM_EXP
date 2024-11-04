@@ -244,9 +244,11 @@ def evaluate(model, dataloader):
     text_embeddings, all_targets = [], []
     for batch_text, batch_label in dataloader.all_text():
         move_to_device(batch_text, device)
+        move_to_device(batch_label, device) # even though we don't actually need it on gpu
+                                            # we need to move it because we want to all gather
         text_embedding = model(batch_text)
         text_embedding = ddp_sync_concat_tensor(text_embedding).cpu()
-        batch_label = ddp_sync_concat_tensor(batch_label)
+        batch_label = ddp_sync_concat_tensor(batch_label).cpu()
         all_targets.append(batch_label)
         text_embeddings.append(text_embedding)
     text_embeddings = torch.cat(text_embeddings, dim=0)
