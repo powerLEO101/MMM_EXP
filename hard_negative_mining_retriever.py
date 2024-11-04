@@ -57,8 +57,10 @@ def create_query_text(subject_name, construct_name, question_text, correct_answe
     return f'Instruct: Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception.\nQuery: \n### Question ###:\n{subject_name}, {construct_name}\n{question_text}\n### Correct Answer ###:\n{correct_answer}\n### Incorrect Answer ###:\n{incorrect_answer}'
 
 class MyDataLoader:
-    def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, rank, supplemental_batch_size=None, seed=42):
-        train_df = pd.read_csv(train_df_path)
+    def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, rank, folds, supplemental_batch_size=None, seed=42):
+        train_df = pd.read_csv(train_df_path) # can also be eval, but naming doesnt matter
+        train_df['fold'] = train_df['QuestionId'].apply(lambda x : x % 5)
+        train_df = train_df[train_df['fold'].isin(folds)]
         misconceptions = pd.read_csv(misconceptions_path)
         train_df['correct_answer_text'] = train_df.apply(lambda x : x[f"Answer{x['CorrectAnswer']}Text"], axis=1)
         self.data = []
@@ -250,6 +252,9 @@ def evaluate(model, dataloader):
     text_embeddings = torch.cat(text_embeddings, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
 
+    print('text_embed', text_embeddings.shape)
+    print('all_target', all_targets.shape)
+
     if master_process:
         print('--- Embedding misconceptions ---')
     mis_embeddings = []
@@ -259,15 +264,19 @@ def evaluate(model, dataloader):
         mis_embedding = ddp_sync_concat_tensor(mis_embedding).cpu()
         mis_embeddings.append(mis_embedding)
     mis_embeddings = torch.cat(mis_embeddings, dim=0)
+    print('mis_embed', mis_embeddings.shape)
     
-    scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
-    top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
-    top25_ids = top_scores[:, : 25]
+    if master_process:
+        scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
+        top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
+        top25_ids = top_scores[:, : 25]
+        print('top25', top25_ids[0, :25])
 
-    map25_score = metrics.mapk(actual=[[x] for x in all_targets.tolist()],
-                               predicted=top25_ids.tolist())
-    top25_hitrate = sum([(top_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
-    print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
+        map25_score = metrics.mapk(actual=[[x] for x in all_targets.tolist()],
+                                   predicted=top25_ids.tolist())
+        top25_hitrate = sum([(top_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
+        print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
+    model.train()
 
 
 class MyLogger:
@@ -306,7 +315,7 @@ class MyLogger:
         pd.DataFrame.from_dict(self.data).to_csv(path)
 
 
-def train_loop(model, dataloader, optimizer, total_steps):
+def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
     logger = MyLogger(cumulative=['time'],
                       average=['lr', 'loss_accum', 'grad_norm'],
                       literal=['step'],
@@ -344,6 +353,10 @@ def train_loop(model, dataloader, optimizer, total_steps):
             logger.log(step=step, lr=lr, loss_accum=loss_accum.cpu().item(), grad_norm=grad_norm, time=time_elapsed)
             if (step + 1) % args.ckpt_interval == 0:
                 model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
+
+        if (step + 1) % args.eval_interval == 0:
+            evaluate(model, eval_dataloader)
+
     return model, logger
 
 # --- Main ---
@@ -398,7 +411,8 @@ def parse_args():
     parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
     parser.add_argument('--total_step', type=int, help='Total step', default=100)
     parser.add_argument('--ckpt_interval', type=int, help='Ckpt interval', default=40)
-    parser.add_argument('--log_interval', type=int, help='Ckpt interval', default=1)
+    parser.add_argument('--log_interval', type=int, help='Log interval', default=1)
+    parser.add_argument('--eval_interval', type=int, help='Eval interval', default=100)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
@@ -426,10 +440,20 @@ def main():
                               supplemental_batch_size=int(16 - (args.batch_size / ddp_world_size)),
                               rank=ddp_rank,
                               seed=42,
+                              folds=[0, 1, 2, 3],
                               )
+    eval_dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv',
+                                   misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
+                                   batch_size=args.batch_size,
+                                   model_name=args.model_name,
+                                   supplemental_batch_size=int(16 - (args.batch_size / ddp_world_size)),
+                                   rank=ddp_rank,
+                                   seed=42,
+                                   folds=[4],
+                                   )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
-    model, logger = train_loop(model, dataloader, optimizer, args.total_step)
+    model, logger = train_loop(model, dataloader, eval_dataloader, optimizer, args.total_step)
     if master_process:
         print(f'------ Experiment finished, saving checkpoint to {save_path} ------')
         model.save_pretrained(f'{save_path}/final_checkpoint')
