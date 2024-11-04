@@ -279,7 +279,7 @@ class MyLogger:
         self.cumulative = cumulative
         self.average = average
         self.literal = literal
-        self.data = {x : [] for x in set(cumulative, average)}
+        self.data = {x : [] for x in cumulative + average + literal}
         self.log_step = 0
         self.log_step_total = log_step_total
         self.log_interval = log_interval
@@ -310,7 +310,7 @@ def train_loop(model, dataloader, optimizer, total_steps):
     logger = MyLogger(cumulative=['time'],
                       average=['lr', 'loss_accum', 'grad_norm'],
                       literal=['step'],
-                      log_interval=5,
+                      log_interval=args.log_interval,
                       log_step_total=total_steps)
     for step in range(total_steps):
         time_start = time()
@@ -398,6 +398,7 @@ def parse_args():
     parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
     parser.add_argument('--total_step', type=int, help='Total step', default=100)
     parser.add_argument('--ckpt_interval', type=int, help='Ckpt interval', default=40)
+    parser.add_argument('--log_interval', type=int, help='Ckpt interval', default=1)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
