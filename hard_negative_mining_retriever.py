@@ -296,7 +296,7 @@ class MyLogger:
         for c in self.cumulative:
             text.append(f'{c}:\t{sum(self.data[c][-self.log_interval : ]) : .3f}')
         for a in self.average:
-            text.append(f'{a}:\t{average(self.data[a][-self.log_interval : ]) : .3f}')
+            text.append(f'{a}:\t{sum(self.data[a][-self.log_interval : ]) / self.log_interval : .3f}')
         for l in self.literal:
             text.append(f'{l}:\t{self.data[l][-1]}')
         text = f'{self.log_step}/{self.log_step_total} || ' + ' | '.join(text)
