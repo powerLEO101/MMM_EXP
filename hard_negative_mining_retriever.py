@@ -341,7 +341,7 @@ def train_loop(model, dataloader, optimizer, total_steps):
             dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
         if master_process:
             time_elapsed = time() - time_start
-            logger.log(step=step, lr=lr, loss=loss, grad_norm=grad_norm, time=time_elapsed)
+            logger.log(step=step, lr=lr, loss_accum=loss_accum, grad_norm=grad_norm, time=time_elapsed)
             if (step + 1) % args.ckpt_interval == 0:
                 model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
     return model, logger
