@@ -242,7 +242,7 @@ def evaluate(model, dataloader):
         print('--- Embedding text ---')
         
     text_embeddings, all_targets = [], []
-    for batch_text, batch_label in dataloder.all_text():
+    for batch_text, batch_label in dataloader.all_text():
         move_to_device(batch_text, device)
         text_embedding = model(batch_text)
         text_embedding = ddp_sync_concat_tensor(text_embedding).cpu()
