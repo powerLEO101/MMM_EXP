@@ -285,23 +285,23 @@ def evaluate(model, dataloader):
         mis_embeddings.append(mis_embedding)
     mis_embeddings = torch.cat(mis_embeddings, dim=0)
 
-    
-    if master_process:
-        print(f'Embedding misconceptions took {time() - time_start} s')
-        # we padded the input, not truncate the unwanted part
-        text_embeddings = text_embeddings[ : len(dataloader.data)]
-        all_targets = all_targets[ : len(dataloader.data)]
-        mis_embeddings = mis_embeddings[ : len(dataloader.misconceptions)]
-        scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
-        top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
-        top25_ids = top_scores[:, : 25]
-        print('top25', top25_ids[0, :25])
+    if master_process: print(f'Embedding misconceptions took {time() - time_start} s')
 
-        map25_score = metrics.mapk(actual=[[x] for x in all_targets.tolist()],
-                                   predicted=top25_ids.tolist())
-        top25_hitrate = sum([(top25_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
-        print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
+    # we padded the input, not truncate the unwanted part
+    text_embeddings = text_embeddings[ : len(dataloader.data)]
+    all_targets = all_targets[ : len(dataloader.data)]
+    mis_embeddings = mis_embeddings[ : len(dataloader.misconceptions)]
+    scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
+    top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
+    top25_ids = top_scores[:, : 25]
+
+    map25_score = metrics.mapk(actual=[[x] for x in all_targets.tolist()],
+                               predicted=top25_ids.tolist())
+    top25_hitrate = sum([(top25_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
     model.train()
+
+    if master_process: print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
+    return map25_score, top25_hitrate
 
 
 class MyLogger:
@@ -321,9 +321,9 @@ class MyLogger:
     def log(self, **arg_dict):
         for k, v in arg_dict.items():
             self.data[k].append(v)
-        self.log_step += 1
         if (self.log_step + 1) % self.log_interval == 0:
             self.print_log()
+        self.log_step += 1
 
     def print_log(self):
         text = []
@@ -346,6 +346,9 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
                       literal=['step'],
                       log_interval=args.log_interval,
                       log_step_total=total_steps)
+    eval_logger = MyLogger([], [], ['step', 'map25_score', 'top25_hitrate'], 
+                           log_interval=100000,
+                           log_step_total=100000)
     for step in range(total_steps):
         time_start = time()
 
@@ -380,9 +383,10 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
                 model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
 
         if (step + 1) % args.eval_interval == 0:
-            evaluate(model, eval_dataloader)
+            map25_score, top25_hitrate = evaluate(model, eval_dataloader)
+            eval_logger.log(map25_score=map25_score, top25_hitrate=top25_hitrate)
 
-    return model, logger
+    return model, logger, eval_logger
 
 # --- Main ---
 
@@ -479,11 +483,12 @@ def main():
                                    )
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
-    model, logger = train_loop(model, dataloader, eval_dataloader, optimizer, args.total_step)
+    model, logger, eval_logger = train_loop(model, dataloader, eval_dataloader, optimizer, args.total_step)
     if master_process:
         print(f'------ Experiment finished, saving checkpoint to {save_path} ------')
         model.save_pretrained(f'{save_path}/final_checkpoint')
         logger.to_csv(f'{save_path}/df_log.csv')
+        eval_logger.to_csv(f'{save_path}/df_log_eval.csv')
 
 if __name__ == '__main__':
     args = parse_args()
