@@ -84,6 +84,9 @@ class MyDataLoader:
         # no max_legnth is given, only pad to the longest sequence in the batch. the longest input text should be around 512 tokens
         result = []
         for arg in args:
+            if len(arg) == 0:
+                result.append(torch.tensor([], dtype=torch.long))
+                continue
             result.append(self.tokenizer(arg, padding=True, return_tensors='pt'))
         return result
 
@@ -106,6 +109,13 @@ class MyDataLoader:
         
         return batch_text, batch_mis
     
+    def pad_list_to_batch_size(x, fill):
+        assert isinstance(x, list)
+        actual_batch_size = int(self.batch_size / ddp_world_size)
+        if len(x) < actual_batch_size:
+            x = x + [fill] * (actual_batch_size - len(x))
+        return x
+
     def all_text(self):
         all_text = self.data['text'].values.tolist()
         all_target = self.data['target_id'].values.tolist()
@@ -114,8 +124,8 @@ class MyDataLoader:
             batch_target = all_target[i : min(len(all_text), i + self.batch_size)]
 
             actual_batch_size = int(self.batch_size / ddp_world_size)
-            batch_text = batch_text[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
-            batch_target = batch_target[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+            batch_text = self.pad_list_to_batch_size(batch_text[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size], '')
+            batch_target = self.pad_list_to_batch_size(batch_target[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size], 0)
 
             batch_text = self.tokenize_everything(batch_text)[0]
             batch_target = torch.tensor(batch_target, dtype=torch.long)
@@ -126,7 +136,7 @@ class MyDataLoader:
         for i in range(0, len(all_mis), self.batch_size):
             batch_mis = all_mis[i : min(len(all_mis), i + self.batch_size)]
             actual_batch_size = int(self.batch_size / ddp_world_size)
-            batch_mis = batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+            batch_mis = self.pad_list_to_batch_size(batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size], '')
             batch_mis = self.tokenize_everything(batch_mis)[0]
             yield batch_mis
 
@@ -246,16 +256,18 @@ def evaluate(model, dataloader):
     for batch_text, batch_label in dataloader.all_text():
         batch_text = move_to_device(batch_text, device)
         batch_label = move_to_device(batch_label, device) # even though we don't actually need it on gpu
-                                            # we need to move it because we want to all gather
+                                                          # we need to move it because we want to all gather
         text_embedding = model(batch_text)
+
         text_embedding = ddp_sync_concat_tensor(text_embedding).cpu()
         batch_label = ddp_sync_concat_tensor(batch_label).cpu()
-        all_targets.append(batch_label)
         text_embeddings.append(text_embedding)
+        all_targets.append(batch_label)
+
     text_embeddings = torch.cat(text_embeddings, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
 
-    print(f'Embedding text took {time_start - time()} s')
+    print(f'Embedding text took {time() - time_start} s')
     time_start = time()
 
     print('text_embed', text_embeddings.shape)
@@ -271,9 +283,13 @@ def evaluate(model, dataloader):
         mis_embeddings.append(mis_embedding)
     mis_embeddings = torch.cat(mis_embeddings, dim=0)
     print('mis_embed', mis_embeddings.shape)
-    print(f'Embedding misconceptions took {time_start - time()} s')
+    print(f'Embedding misconceptions took {time() - time_start} s')
     
     if master_process:
+        # we padded the input, not truncate the unwanted part
+        text_embeddings = text_embeddings[ : len(dataloader.data)]
+        all_targets = all_targets[ : len(dataloader.data)]
+        mis_embeddings = mis_embeddings[ : len(dataloader.misconceptions)]
         scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
         top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
         top25_ids = top_scores[:, : 25]
@@ -452,14 +468,13 @@ def main():
                               )
     eval_dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv',
                                    misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
-                                   batch_size=args.batch_size,
+                                   batch_size=args.batch_size * 4,
                                    model_name=args.model_name,
                                    supplemental_batch_size=int(16 - (args.batch_size / ddp_world_size)),
                                    rank=ddp_rank,
                                    seed=42,
                                    folds=[4],
                                    )
-    print(len(dataloader.data), len(eval_dataloader.data))
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
     model, logger = train_loop(model, dataloader, eval_dataloader, optimizer, args.total_step)
