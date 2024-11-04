@@ -267,14 +267,10 @@ def evaluate(model, dataloader):
     text_embeddings = torch.cat(text_embeddings, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
 
-    print(f'Embedding text took {time() - time_start} s')
+    if master_process: print(f'Embedding text took {time() - time_start} s')
     time_start = time()
 
-    print('text_embed', text_embeddings.shape)
-    print('all_target', all_targets.shape)
-
-    if master_process:
-        print('--- Embedding misconceptions ---')
+    if master_process: print('--- Embedding misconceptions ---')
     mis_embeddings = []
     for batch_mis in dataloader.all_misconceptions():
         batch_mis = move_to_device(batch_mis, device)
@@ -282,10 +278,10 @@ def evaluate(model, dataloader):
         mis_embedding = ddp_sync_concat_tensor(mis_embedding).cpu()
         mis_embeddings.append(mis_embedding)
     mis_embeddings = torch.cat(mis_embeddings, dim=0)
-    print('mis_embed', mis_embeddings.shape)
-    print(f'Embedding misconceptions took {time() - time_start} s')
+
     
     if master_process:
+        print(f'Embedding misconceptions took {time() - time_start} s')
         # we padded the input, not truncate the unwanted part
         text_embeddings = text_embeddings[ : len(dataloader.data)]
         all_targets = all_targets[ : len(dataloader.data)]
@@ -297,7 +293,7 @@ def evaluate(model, dataloader):
 
         map25_score = metrics.mapk(actual=[[x] for x in all_targets.tolist()],
                                    predicted=top25_ids.tolist())
-        top25_hitrate = sum([(top_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
+        top25_hitrate = sum([(top25_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
         print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
     model.train()
 
