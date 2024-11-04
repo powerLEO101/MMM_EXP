@@ -255,7 +255,6 @@ def evaluate(model, dataloader):
     model.eval()
     if master_process:
         print('--- Evaluate ---')
-        print('--- Embedding text ---')
         
     time_start = time()
     text_embeddings, all_targets = [], []
@@ -276,7 +275,6 @@ def evaluate(model, dataloader):
     if master_process: print(f'Embedding text took {time() - time_start} s')
     time_start = time()
 
-    if master_process: print('--- Embedding misconceptions ---')
     mis_embeddings = []
     for batch_mis in dataloader.all_misconceptions():
         batch_mis = move_to_device(batch_mis, device)
@@ -297,7 +295,7 @@ def evaluate(model, dataloader):
 
     map25_score = metrics.mapk(actual=[[x] for x in all_targets.tolist()],
                                predicted=top25_ids.tolist())
-    top25_hitrate = sum([(top25_scores[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
+    top25_hitrate = sum([(top25_ids[i] == all_targets[i]).any() for i in range(len(all_targets))]) / len(all_targets)
     model.train()
 
     if master_process: print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
