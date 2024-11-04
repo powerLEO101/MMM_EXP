@@ -172,7 +172,7 @@ class MyEmbeddingModel(nn.Module):
         self.embed_model.print_trainable_parameters()
         # self.embed_model.gradient_checkpointing_enable()
 
-        self.temperature = 0.3
+        self.temperature = 0.2
 
     def last_token_pool(self, last_hidden_states: Tensor,
                         attention_mask: Tensor) -> Tensor:
@@ -382,7 +382,7 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
 
         if (step + 1) % args.eval_interval == 0:
             map25_score, top25_hitrate = evaluate(model, eval_dataloader)
-            eval_logger.log(map25_score=map25_score, top25_hitrate=top25_hitrate)
+            eval_logger.log(map25_score=map25_score, top25_hitrate=top25_hitrate, step=step)
 
     return model, logger, eval_logger
 
