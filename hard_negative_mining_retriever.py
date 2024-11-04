@@ -109,7 +109,7 @@ class MyDataLoader:
         
         return batch_text, batch_mis
     
-    def pad_list_to_batch_size(x, fill):
+    def pad_list_to_batch_size(self, x, fill):
         assert isinstance(x, list)
         actual_batch_size = int(self.batch_size / ddp_world_size)
         if len(x) < actual_batch_size:
