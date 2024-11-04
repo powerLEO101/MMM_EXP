@@ -109,7 +109,7 @@ class MyDataLoader:
     def all_text(self):
         all_text = self.data['text'].values.tolist()
         all_target = self.data['target_id'].values.tolist()
-        for i in range(0, len(batch_text), self.batch_size):
+        for i in range(0, len(all_text), self.batch_size):
             batch_text = all_text[i : min(len(batch_text), i + self.batch_size)]
             batch_target = all_target[i : min(len(batch_text), i + self.batch_size)]
 
