@@ -172,6 +172,8 @@ class MyEmbeddingModel(nn.Module):
         self.embed_model.print_trainable_parameters()
         # self.embed_model.gradient_checkpointing_enable()
 
+        self.temperature = 0.3
+
     def last_token_pool(self, last_hidden_states: Tensor,
                         attention_mask: Tensor) -> Tensor:
         left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
@@ -190,11 +192,11 @@ class MyEmbeddingModel(nn.Module):
     def compute_similarity(self, a, b, eps=1e-8):
         # https://stackoverflow.com/questions/50411191/how-to-compute-the-cosine-similarity-in-pytorch-for-all-rows-in-a-matrix-with-re
         a_n, b_n = a.norm(dim=1)[:, None], b.norm(dim=1)[:, None]
-        # a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
-        # b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
-        a_norm = a # normalize to normal vector here might not be the best choice
-        b_norm = b # model will be unable to represent the different in signifance in the softmax
-                   # operation because sim is capped at (0, 1), we want to uncap it
+        a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
+        b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
+        # a_norm = a # normalize to normal vector here might not be the best choice
+        # b_norm = b # model will be unable to represent the different in signifance in the softmax
+                     # operation because sim is capped at (0, 1), we want to uncap it
         sim_mt = torch.mm(a_norm, b_norm.transpose(0, 1))
         return sim_mt
 
@@ -207,6 +209,7 @@ class MyEmbeddingModel(nn.Module):
         batch_mis = self.encode(batch_mis)
         # sims = F.cosine_similarity(batch_text, batch_mis, dim=-1)
         sims = self.compute_similarity(batch_text, batch_mis) # batch_size, mis_size
+        sims = sims / self.temperature # to increase the difference in probability, sims is capped at (0, 1)
 
         label = torch.arange(sims.shape[0], dtype=torch.long, device=sims.device)
         # technically the sims here are not logits, they cannot go lower than 0, but 
