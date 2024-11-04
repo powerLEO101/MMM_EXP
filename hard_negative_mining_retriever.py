@@ -124,7 +124,7 @@ class MyDataLoader:
     def all_misconceptions(self):
         all_mis = self.misconceptions['MisconceptionName'].values.tolist()
         for i in range(0, len(all_mis), self.batch_size):
-            batch_mis = all_mis[i : min(len(batch_mis), i + self.batch_size)]
+            batch_mis = all_mis[i : min(len(all_mis), i + self.batch_size)]
             actual_batch_size = int(self.batch_size / ddp_world_size)
             batch_mis = batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
             batch_mis = self.tokenize_everything(batch_mis)[0]
@@ -241,6 +241,7 @@ def evaluate(model, dataloader):
         print('--- Evaluate ---')
         print('--- Embedding text ---')
         
+    time_start = time()
     text_embeddings, all_targets = [], []
     for batch_text, batch_label in dataloader.all_text():
         batch_text = move_to_device(batch_text, device)
@@ -253,6 +254,9 @@ def evaluate(model, dataloader):
         text_embeddings.append(text_embedding)
     text_embeddings = torch.cat(text_embeddings, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
+
+    print(f'Embedding text took {time_start - time()} s')
+    time_start = time()
 
     print('text_embed', text_embeddings.shape)
     print('all_target', all_targets.shape)
@@ -267,6 +271,7 @@ def evaluate(model, dataloader):
         mis_embeddings.append(mis_embedding)
     mis_embeddings = torch.cat(mis_embeddings, dim=0)
     print('mis_embed', mis_embeddings.shape)
+    print(f'Embedding misconceptions took {time_start - time()} s')
     
     if master_process:
         scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
@@ -305,9 +310,9 @@ class MyLogger:
     def print_log(self):
         text = []
         for c in self.cumulative:
-            text.append(f'{c}:\t{sum(self.data[c][-self.log_interval : ]) : .3f}')
+            text.append(f'{c}:\t{sum(self.data[c][-self.log_interval : ]) : .3e}')
         for a in self.average:
-            text.append(f'{a}:\t{sum(self.data[a][-self.log_interval : ]) / self.log_interval : .3f}')
+            text.append(f'{a}:\t{sum(self.data[a][-self.log_interval : ]) / self.log_interval : .3e}')
         for l in self.literal:
             text.append(f'{l}:\t{self.data[l][-1]}')
         text = f'{self.log_step}/{self.log_step_total} || ' + ' | '.join(text)
