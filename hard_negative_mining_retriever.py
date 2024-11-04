@@ -328,7 +328,7 @@ def train_loop(model, dataloader, optimizer, total_steps):
                 model.require_backward_grad_sync = (micro_step == args.grad_accum - 1)
             loss = model(batch_text, batch_mis) / args.grad_accum
             loss.backward()
-            loss_accum += loss.detach().cpu().item()
+            loss_accum += loss.detach()
 
         grad_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0))
         # gradient is synced here, so no need to all reduce
@@ -341,7 +341,7 @@ def train_loop(model, dataloader, optimizer, total_steps):
             dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
         if master_process:
             time_elapsed = time() - time_start
-            logger.log(step=step, lr=lr, loss_accum=loss_accum, grad_norm=grad_norm, time=time_elapsed)
+            logger.log(step=step, lr=lr, loss_accum=loss_accum.cpu().item(), grad_norm=grad_norm, time=time_elapsed)
             if (step + 1) % args.ckpt_interval == 0:
                 model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
     return model, logger
