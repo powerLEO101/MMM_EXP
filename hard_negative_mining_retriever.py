@@ -454,6 +454,7 @@ def main():
                                    seed=42,
                                    folds=[4],
                                    )
+    print(len(dataloader.data), len(eval_dataloader.data))
     optim_groups = get_optimizer_grouped_parameters(model, 0.01)
     optimizer = bnb.optim.Adam8bit(optim_groups, lr=args.lr, betas=(0.9, 0.99), eps=1e-8)
     model, logger = train_loop(model, dataloader, eval_dataloader, optimizer, args.total_step)
