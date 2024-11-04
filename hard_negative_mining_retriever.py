@@ -299,7 +299,7 @@ def evaluate(model, dataloader):
     model.train()
 
     if master_process: print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
-    return map25_score, top25_hitrate
+    return float(map25_score), float(top25_hitrate)
 
 
 class MyLogger:
