@@ -349,7 +349,7 @@ def get_hard_negative_samples(model, dataloader):
     mis_embeddings = mis_embeddings[ : len(dataloader.misconceptions)]
     scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
     top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
-    target_indices = [(top_scores[i] == all_targets[i]).nonzero()[0][0] for i in range(top_scores)] # target has to be in top scores
+    target_indices = [(top_scores[i] == all_targets[i]).nonzero()[0][0] for i in range(len(top_scores))] # target has to be in top scores
     hard_examples = [top_scores[i, : min(16, x)].tolist() for i, x in enumerate(target_indices)]
 
     model.train()
