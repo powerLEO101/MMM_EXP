@@ -408,7 +408,7 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
     eval_logger = MyLogger([], [], ['step', 'map25_score', 'top25_hitrate'], 
                            log_interval=100000,
                            log_step_total=100000)
-    hard_examples = get_hard_negative_samples(model, dataloader)
+    hard_examples = get_hard_negative_samples(raw_model, dataloader)
     utils.pickle_save(hard_examples, f'{save_path}/hard_examples.pickle')
     dataloader.set_hard_examples(hard_examples)
     for step in range(total_steps):
