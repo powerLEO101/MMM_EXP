@@ -114,7 +114,7 @@ class MyDataLoader:
         for one_index in batch_index:
             # use randint 1e6 here to keep the random seed the same
             hard_example_indices = self.random.randint(0, 1e6, self.supplemental_batch_size) % len(self.hard_examples[one_index])
-            supplemental_misconceptions.append(self.misconceptions.iloc[hard_example_indices]['MisconceptionName'].values.tolist())
+            supplemental_misconceptions.extend(self.misconceptions.iloc[hard_example_indices]['MisconceptionName'].values.tolist())
         batch_mis.extend(supplemental_misconceptions)
         batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
         
