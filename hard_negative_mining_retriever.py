@@ -314,6 +314,9 @@ def evaluate(model, dataloader):
 
 @torch.no_grad()
 def get_hard_negative_samples(model, dataloader):
+    if args.hard_example_path is not None:
+        print(f'--- Using hard examples from {args.hard_example_path} ---')
+        return utils.pickle_load(args.hard_example_path)
     original_batch_size = dataloader.batch_size
     dataloader.batch_size *= 4 # we can temporarily increase train dataloader's batch size because of no grad
     model.eval()
@@ -498,6 +501,7 @@ def parse_args():
     parser.add_argument('--ckpt_interval', type=int, help='Ckpt interval', default=40)
     parser.add_argument('--log_interval', type=int, help='Log interval', default=1)
     parser.add_argument('--eval_interval', type=int, help='Eval interval', default=100)
+    parser.add_argument('--hard_example_path', type=str, help='Hard example path', default=None)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
