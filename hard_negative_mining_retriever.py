@@ -315,7 +315,7 @@ def evaluate(model, dataloader):
 @torch.no_grad()
 def get_hard_negative_samples(model, dataloader):
     if args.hard_example_path is not None:
-        print(f'--- Using hard examples from {args.hard_example_path} ---')
+        if master_process: print(f'--- Using hard examples from {args.hard_example_path} ---')
         return utils.pickle_load(args.hard_example_path)
     original_batch_size = dataloader.batch_size
     dataloader.batch_size *= 4 # we can temporarily increase train dataloader's batch size because of no grad
@@ -397,6 +397,9 @@ class MyLogger:
 
 
 def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
+    if ddp:
+        model = DDP(model, device_ids=[ddp_local_rank])
+    raw_model = model.module if ddp else model
     logger = MyLogger(cumulative=['time'],
                       average=['lr', 'loss_accum', 'grad_norm'],
                       literal=['step'],
@@ -439,13 +442,13 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
             time_elapsed = time() - time_start
             logger.log(step=step, lr=lr, loss_accum=loss_accum.cpu().item(), grad_norm=grad_norm, time=time_elapsed)
             if (step + 1) % args.ckpt_interval == 0:
-                model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
+                raw_model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
 
         if (step + 1) % args.eval_interval == 0:
             map25_score, top25_hitrate = evaluate(model, eval_dataloader)
             eval_logger.log(map25_score=map25_score, top25_hitrate=top25_hitrate, step=step)
 
-    return model, logger, eval_logger
+    return raw_model, logger, eval_logger
 
 # --- Main ---
 
@@ -527,7 +530,7 @@ def main():
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                               batch_size=args.batch_size,
                               model_name=args.model_name,
-                              supplemental_batch_size=7,
+                              supplemental_batch_size=3,
                               rank=ddp_rank,
                               seed=42,
                               folds=[0, 1, 2, 3],
@@ -536,7 +539,7 @@ def main():
                                    misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                                    batch_size=args.batch_size * 4,
                                    model_name=args.model_name,
-                                   supplemental_batch_size=7,
+                                   supplemental_batch_size=3,
                                    rank=ddp_rank,
                                    seed=42,
                                    folds=[4],
