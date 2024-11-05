@@ -217,14 +217,20 @@ class MyEmbeddingModel(nn.Module):
 
         batch_text = self.encode(batch_text)
         batch_mis = self.encode(batch_mis)
-        # if ddp:
-            # batch_text = ddp_sync_concat_tensor(batch_text)
-            # batch_mis = ddp_sync_concat_tensor(batch_mis)
+        if ddp:
+            batch_text = ddp_sync_concat_tensor(batch_text)
+            batch_mis = ddp_sync_concat_tensor(batch_mis)
         # sims = F.cosine_similarity(batch_text, batch_mis, dim=-1)
         sims = self.compute_similarity(batch_text, batch_mis) # batch_size, mis_size
         sims = sims / self.temperature # to increase the difference in probability, sims is capped at (0, 1)
 
-        label = torch.arange(sims.shape[0], dtype=torch.long, device=sims.device)
+        if ddp:
+            mis_batch_size = int(batch_mis.shape[0] / ddp_world_size)
+            actual_batch_size = int(batch_text.shape[0] / ddp_world_size)
+            label = [list(range(mis_batch_size * x, mis_batch_size * x + actual_batch_size)) for x in range(ddp_world_size)]
+            label = torch.tensor(label, dtype=torch.long, device=sims.device)
+        else:
+            label = torch.arange(sims.shape[0], dtype=torch.long, device=sims.device)
         # technically the sims here are not logits, they cannot go lower than 0, but 
         # let's just follow the original paper TODO can be a improvement?
         loss = F.cross_entropy(sims, label)
@@ -360,6 +366,9 @@ def get_hard_negative_samples(model, dataloader):
     top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
     target_indices = [(top_scores[i] == all_targets[i]).nonzero()[0][0] for i in range(len(top_scores))] # target has to be in top scores
     hard_examples = [top_scores[i, : max(16, x)].tolist() for i, x in enumerate(target_indices)]
+    for i in range(len(hard_examples)):
+        if target_indices[i] < len(hard_examples[i]):
+            del hard_examples[i][target_indices[i]]
 
     model.train()
     dataloader.batch_size = original_batch_size
