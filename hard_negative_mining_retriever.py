@@ -445,7 +445,7 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
                 raw_model.save_pretrained(f'{save_path}/step{step : 05d}_checkpoint')
 
         if (step + 1) % args.eval_interval == 0:
-            map25_score, top25_hitrate = evaluate(model, eval_dataloader)
+            map25_score, top25_hitrate = evaluate(raw_model, eval_dataloader)
             eval_logger.log(map25_score=map25_score, top25_hitrate=top25_hitrate, step=step)
 
     return raw_model, logger, eval_logger
