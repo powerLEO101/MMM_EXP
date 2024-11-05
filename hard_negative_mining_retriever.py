@@ -319,8 +319,9 @@ def evaluate(model, dataloader):
 def get_hard_negative_samples(model, dataloader):
     if args.hard_example_path is not None:
         if master_process: print(f'--- Using hard examples from {args.hard_example_path} ---')
+        result = torch.load(args.hard_example_path, weights_only=False)
         args.hard_example_path = None
-        return torch.load(args.hard_example_path, weights_only=False)
+        return result
     original_batch_size = dataloader.batch_size
     dataloader.batch_size *= 4 # we can temporarily increase train dataloader's batch size because of no grad
     model.eval()
