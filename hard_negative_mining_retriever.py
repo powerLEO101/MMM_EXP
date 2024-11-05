@@ -217,9 +217,9 @@ class MyEmbeddingModel(nn.Module):
 
         batch_text = self.encode(batch_text)
         batch_mis = self.encode(batch_mis)
-        if ddp:
-            batch_text = ddp_sync_concat_tensor(batch_text)
-            batch_mis = ddp_sync_concat_tensor(batch_mis)
+        # if ddp:
+            # batch_text = ddp_sync_concat_tensor(batch_text)
+            # batch_mis = ddp_sync_concat_tensor(batch_mis)
         # sims = F.cosine_similarity(batch_text, batch_mis, dim=-1)
         sims = self.compute_similarity(batch_text, batch_mis) # batch_size, mis_size
         sims = sims / self.temperature # to increase the difference in probability, sims is capped at (0, 1)
