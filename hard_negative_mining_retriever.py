@@ -518,6 +518,7 @@ def parse_args():
     parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
     parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
     parser.add_argument('--total_step', type=int, help='Total step', default=100)
+    parser.add_argument('--supplemental_batch_size', type=int, help='supplemental_batch_size', default=3)
     parser.add_argument('--ckpt_interval', type=int, help='Ckpt interval', default=40)
     parser.add_argument('--log_interval', type=int, help='Log interval', default=1)
     parser.add_argument('--eval_interval', type=int, help='Eval interval', default=100)
@@ -549,7 +550,7 @@ def main():
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                               batch_size=args.batch_size,
                               model_name=args.model_name,
-                              supplemental_batch_size=5,
+                              supplemental_batch_size=args.supplemental_batch_size,
                               rank=ddp_rank,
                               seed=42,
                               folds=[0, 1, 2, 3],
@@ -558,7 +559,7 @@ def main():
                                    misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                                    batch_size=args.batch_size * 4,
                                    model_name=args.model_name,
-                                   supplemental_batch_size=5,
+                                   supplemental_batch_size=args.supplemental_batch_size,
                                    rank=ddp_rank,
                                    seed=42,
                                    folds=[4],
