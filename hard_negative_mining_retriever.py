@@ -228,7 +228,7 @@ class MyEmbeddingModel(nn.Module):
             mis_batch_size = int(batch_mis.shape[0] / ddp_world_size)
             actual_batch_size = int(batch_text.shape[0] / ddp_world_size)
             label = [list(range(mis_batch_size * x, mis_batch_size * x + actual_batch_size)) for x in range(ddp_world_size)]
-            label = torch.tensor(label, dtype=torch.long, device=sims.device)
+            label = torch.tensor(label, dtype=torch.long, device=sims.device).flatten()
         else:
             label = torch.arange(sims.shape[0], dtype=torch.long, device=sims.device)
         # technically the sims here are not logits, they cannot go lower than 0, but 
