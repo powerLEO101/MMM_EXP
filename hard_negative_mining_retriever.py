@@ -163,8 +163,8 @@ class MyEmbeddingModel(nn.Module):
                 )
         self.embed_model = AutoModel.from_pretrained(model_name, quantization_config=bnb_config)
         config = LoraConfig(
-            r=32,
-            lora_alpha=64,
+            r=args.lora_r,
+            lora_alpha=args.lora_r * 2,
             target_modules=[
                 "q_proj",
                 "k_proj",
@@ -217,7 +217,9 @@ class MyEmbeddingModel(nn.Module):
 
         batch_text = self.encode(batch_text)
         batch_mis = self.encode(batch_mis)
-        # TODO add all gather here to increase batch_size, no gradient though
+        if ddp:
+            batch_text = ddp_sync_concat_tensor(batch_text)
+            batch_mis = ddp_sync_concat_tensor(batch_mis)
         # sims = F.cosine_similarity(batch_text, batch_mis, dim=-1)
         sims = self.compute_similarity(batch_text, batch_mis) # batch_size, mis_size
         sims = sims / self.temperature # to increase the difference in probability, sims is capped at (0, 1)
@@ -258,6 +260,7 @@ def move_to_device(x, device):
 def ddp_sync_concat_tensor(x, dim=0):
     tensor_list = [torch.zeros_like(x, device=device) for _ in range(ddp_world_size)]
     dist.all_gather(tensor_list, x)
+    tensor_list[ddp_rank] = x # !! replace the current rank tensor with the given one so it has grad
     tensor_list = torch.cat(tensor_list, dim=dim)
     return tensor_list
 
@@ -316,7 +319,8 @@ def evaluate(model, dataloader):
 def get_hard_negative_samples(model, dataloader):
     if args.hard_example_path is not None:
         if master_process: print(f'--- Using hard examples from {args.hard_example_path} ---')
-        return utils.pickle_load(args.hard_example_path)
+        args.hard_example_path = None
+        return torch.load(args.hard_example_path, weights_only=False)
     original_batch_size = dataloader.batch_size
     dataloader.batch_size *= 4 # we can temporarily increase train dataloader's batch size because of no grad
     model.eval()
@@ -408,12 +412,13 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
     eval_logger = MyLogger([], [], ['step', 'map25_score', 'top25_hitrate'], 
                            log_interval=100000,
                            log_step_total=100000)
-    hard_examples = get_hard_negative_samples(raw_model, dataloader)
-    utils.pickle_save(hard_examples, f'{save_path}/hard_examples.pickle')
-    dataloader.set_hard_examples(hard_examples)
     for step in range(total_steps):
-        time_start = time()
+        if step % args.reset_hard_examples_interval == 0:
+            hard_examples = get_hard_negative_samples(raw_model, dataloader)
+            torch.save(hard_examples, f'{save_path}/hard_examples_{step}.pt')
+            dataloader.set_hard_examples(hard_examples)
 
+        time_start = time()
         model.train()
         optimizer.zero_grad()
         loss_accum = 0.0
@@ -493,6 +498,7 @@ def get_optimizer_grouped_parameters(
 def parse_args():
     parser = argparse.ArgumentParser( description='Script with base path and model name arguments')
     parser.add_argument('--base_path', type=str, help='Base path for the operation', default='/media/workspace/DATA_WAREHOUSE/MMM_INPUT')
+    parser.add_argument('--save_path', type=str, help='Save path', default='/media/workspace/MMM_SAVE')
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
     parser.add_argument('--batch_size', type=int, help='Batch size', default=4)
     parser.add_argument('--lr', type=float, help='Learning rate is not used in this code', default=3e-4)
@@ -504,7 +510,9 @@ def parse_args():
     parser.add_argument('--ckpt_interval', type=int, help='Ckpt interval', default=40)
     parser.add_argument('--log_interval', type=int, help='Log interval', default=1)
     parser.add_argument('--eval_interval', type=int, help='Eval interval', default=100)
+    parser.add_argument('--reset_hard_examples_interval', type=int, help='Reset hard examples', default=200)
     parser.add_argument('--hard_example_path', type=str, help='Hard example path', default=None)
+    parser.add_argument('--lora_r', type=int, help='Lora rank', default=32)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
@@ -555,7 +563,7 @@ def main():
 
 if __name__ == '__main__':
     args = parse_args()
-    save_path = f'/media/workspace/MMM_SAVE/{args.exp_id}'
+    save_path = f'{args.save_path}/{args.exp_id}'
     if master_process:
         print(f'------ Executing experiment {args.exp_id} ------')
         if not os.path.exists(save_path):
