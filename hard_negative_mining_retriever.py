@@ -217,6 +217,7 @@ class MyEmbeddingModel(nn.Module):
 
         batch_text = self.encode(batch_text)
         batch_mis = self.encode(batch_mis)
+        # TODO add all gather here to increase batch_size, no gradient though
         # sims = F.cosine_similarity(batch_text, batch_mis, dim=-1)
         sims = self.compute_similarity(batch_text, batch_mis) # batch_size, mis_size
         sims = sims / self.temperature # to increase the difference in probability, sims is capped at (0, 1)
@@ -522,7 +523,7 @@ def main():
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                               batch_size=args.batch_size,
                               model_name=args.model_name,
-                              supplemental_batch_size=8,
+                              supplemental_batch_size=7,
                               rank=ddp_rank,
                               seed=42,
                               folds=[0, 1, 2, 3],
@@ -531,7 +532,7 @@ def main():
                                    misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                                    batch_size=args.batch_size * 4,
                                    model_name=args.model_name,
-                                   supplemental_batch_size=8,
+                                   supplemental_batch_size=7,
                                    rank=ddp_rank,
                                    seed=42,
                                    folds=[4],
