@@ -60,6 +60,7 @@ def create_query_text(subject_name, construct_name, question_text, correct_answe
 class MyDataLoader:
     def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, rank, folds, supplemental_batch_size=None, seed=42):
         train_df = pd.read_csv(train_df_path) # can also be eval, but naming doesnt matter
+        train_df = train_df.head(100)
         train_df['fold'] = train_df['QuestionId'].apply(lambda x : x % 5)
         train_df = train_df[train_df['fold'].isin(folds)]
         misconceptions = pd.read_csv(misconceptions_path)
