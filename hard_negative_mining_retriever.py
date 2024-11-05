@@ -60,7 +60,6 @@ def create_query_text(subject_name, construct_name, question_text, correct_answe
 class MyDataLoader:
     def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, rank, folds, supplemental_batch_size=None, seed=42):
         train_df = pd.read_csv(train_df_path) # can also be eval, but naming doesnt matter
-        train_df = train_df.head(100)
         train_df['fold'] = train_df['QuestionId'].apply(lambda x : x % 5)
         train_df = train_df[train_df['fold'].isin(folds)]
         misconceptions = pd.read_csv(misconceptions_path)
@@ -351,7 +350,7 @@ def get_hard_negative_samples(model, dataloader):
     scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
     top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
     target_indices = [(top_scores[i] == all_targets[i]).nonzero()[0][0] for i in range(len(top_scores))] # target has to be in top scores
-    hard_examples = [top_scores[i, : min(16, x)].tolist() for i, x in enumerate(target_indices)]
+    hard_examples = [top_scores[i, : max(16, x)].tolist() for i, x in enumerate(target_indices)]
 
     model.train()
     dataloader.batch_size = original_batch_size
