@@ -21,6 +21,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import metrics
+import utils
 
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
@@ -80,6 +81,9 @@ class MyDataLoader:
         self.rank = rank
         self.random = np.random.RandomState(seed)
 
+    def set_hard_examples(self, hard_examples):
+        self.hard_examples = hard_examples
+
     def tokenize_everything(self, *args):
         # no max_legnth is given, only pad to the longest sequence in the batch. the longest input text should be around 512 tokens
         result = []
@@ -91,11 +95,13 @@ class MyDataLoader:
         return result
 
     def next_batch(self):
-        batch_text, batch_mis = [], []
+        assert hasattr(self, 'hard_examples'), 'Run set hard examples before next batch'
+        batch_text, batch_mis, batch_index = [], [], []
         for _ in range(self.batch_size):
             idx = self.random.randint(len(self.data))
             batch_text.append(self.data.iloc[idx]['text'])
             batch_mis.append(self.data.iloc[idx]['target'])
+            batch_index.append(idx)
         
         # handle ddp
         actual_batch_size = int(self.batch_size / ddp_world_size)
@@ -103,7 +109,11 @@ class MyDataLoader:
         batch_mis = batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
 
         # should not sample distractions in batch because some misconception never appear in training data
-        supplemental_misconceptions = self.misconceptions.sample(self.supplemental_batch_size)['MisconceptionName'].values.tolist()
+        supplemental_misconceptions = []
+        for one_index in batch_index:
+            # use randint 1e6 here to keep the random seed the same
+            hard_example_indices = self.random.randint(0, 1e6, self.supplemental_batch_size) % len(self.hard_examples[one_index])
+            supplemental_misconceptions.append(self.misconceptions.iloc[hard_example_indices]['MisconceptionName'].values.tolist())
         batch_mis.extend(supplemental_misconceptions)
         batch_text, batch_mis = self.tokenize_everything(batch_text, batch_mis)
         
@@ -301,6 +311,50 @@ def evaluate(model, dataloader):
     if master_process: print(f'map@25:\t{map25_score : .3f} | top@25 hitrate:\t{top25_hitrate : .3f}')
     return float(map25_score), float(top25_hitrate)
 
+@torch.no_grad()
+def get_hard_negative_samples(model, dataloader):
+    original_batch_size = dataloader.batch_size
+    dataloader.batch_size *= 4 # we can temporarily increase train dataloader's batch size because of no grad
+    model.eval()
+
+    if master_process: print('--- Getting hard negatvie samples ---')
+    time_start = time()
+    text_embeddings, all_targets = [], []
+    for batch_text, batch_label in dataloader.all_text():
+        batch_text = move_to_device(batch_text, device)
+        batch_label = move_to_device(batch_label, device) # even though we don't actually need it on gpu
+                                                          # we need to move it because we want to all gather
+        text_embedding = model(batch_text)
+
+        text_embedding = ddp_sync_concat_tensor(text_embedding).cpu()
+        batch_label = ddp_sync_concat_tensor(batch_label).cpu()
+        text_embeddings.append(text_embedding)
+        all_targets.append(batch_label)
+    text_embeddings = torch.cat(text_embeddings, dim=0)
+    all_targets = torch.cat(all_targets, dim=0)
+    if master_process: print(f'Embedding text took {time() - time_start} s')
+    time_start = time()
+
+    mis_embeddings = []
+    for batch_mis in dataloader.all_misconceptions():
+        batch_mis = move_to_device(batch_mis, device)
+        mis_embedding = model(batch_mis)
+        mis_embedding = ddp_sync_concat_tensor(mis_embedding).cpu()
+        mis_embeddings.append(mis_embedding)
+    mis_embeddings = torch.cat(mis_embeddings, dim=0)
+    if master_process: print(f'Embedding misconceptions took {time() - time_start} s')
+
+    text_embeddings = text_embeddings[ : len(dataloader.data)]
+    all_targets = all_targets[ : len(dataloader.data)]
+    mis_embeddings = mis_embeddings[ : len(dataloader.misconceptions)]
+    scores = model.compute_similarity(text_embeddings, mis_embeddings) # all_text, all_mis
+    top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
+    target_indices = [(top_scores[i] == all_targets[i]).nonzero()[0][0] for i in range(top_scores)] # target has to be in top scores
+    hard_examples = [top_scores[i, : min(16, x)].tolist() for i, x in enumerate(target_indices)]
+
+    model.train()
+    dataloader.batch_size = original_batch_size
+    return hard_examples
 
 class MyLogger:
     def __init__(self, cumulative, average, literal, log_step_total, log_interval=5):
@@ -347,6 +401,9 @@ def train_loop(model, dataloader, eval_dataloader, optimizer, total_steps):
     eval_logger = MyLogger([], [], ['step', 'map25_score', 'top25_hitrate'], 
                            log_interval=100000,
                            log_step_total=100000)
+    hard_examples = get_hard_negative_samples(model, dataloader)
+    utils.pickle_save(hard_examples, f'{save_path}/hard_examples.pickle')
+    dataloader.set_hard_examples(hard_examples)
     for step in range(total_steps):
         time_start = time()
 
@@ -465,7 +522,7 @@ def main():
                               misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                               batch_size=args.batch_size,
                               model_name=args.model_name,
-                              supplemental_batch_size=int(16 - (args.batch_size / ddp_world_size)),
+                              supplemental_batch_size=8,
                               rank=ddp_rank,
                               seed=42,
                               folds=[0, 1, 2, 3],
@@ -474,7 +531,7 @@ def main():
                                    misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                                    batch_size=args.batch_size * 4,
                                    model_name=args.model_name,
-                                   supplemental_batch_size=int(16 - (args.batch_size / ddp_world_size)),
+                                   supplemental_batch_size=8,
                                    rank=ddp_rank,
                                    seed=42,
                                    folds=[4],
