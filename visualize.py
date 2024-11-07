@@ -3,6 +3,7 @@ from transformers import AutoTokenizer
 tokenizer = None
 
 def set_tokenizer(model_name):
+    global tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 def visualize(tokens):
