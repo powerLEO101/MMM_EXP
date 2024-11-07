@@ -220,8 +220,8 @@ class MyEmbeddingModel(nn.Module):
         batch_text = self.encode(batch_text)
         batch_mis = self.encode(batch_mis)
         if master_process:
-            visualize(batch_text)
-            visualize(batch_mis)
+            visualize.visualize(batch_text)
+            visualize.visualize(batch_mis)
         if ddp:
             batch_text = ddp_sync_concat_tensor(batch_text)
             batch_mis = ddp_sync_concat_tensor(batch_mis)
