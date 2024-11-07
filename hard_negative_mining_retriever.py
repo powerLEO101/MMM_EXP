@@ -167,7 +167,7 @@ class MyEmbeddingModel(nn.Module):
         self.embed_model = AutoModel.from_pretrained(model_name, quantization_config=bnb_config)
         config = LoraConfig(
             r=args.lora_r,
-            lora_alpha=args.lora_r * 2,
+            lora_alpha=args.lora_r * 1.4,
             target_modules=[
                 "q_proj",
                 "k_proj",
@@ -512,8 +512,8 @@ def parse_args():
     parser.add_argument('--model_name', type=str, help='Name of the model to use', default='Salesforce/SFR-Embedding-Mistral')
     parser.add_argument('--batch_size', type=int, help='Batch size', default=4)
     parser.add_argument('--lr', type=float, help='Learning rate is not used in this code', default=3e-4)
-    parser.add_argument('--max_lr', type=float, help='Max learning rate', default=5e-4)
-    parser.add_argument('--min_lr', type=float, help='Min learning rate', default=5e-5)
+    parser.add_argument('--max_lr', type=float, help='Max learning rate', default=1e-4)
+    parser.add_argument('--min_lr', type=float, help='Min learning rate', default=1e-5)
     parser.add_argument('--temperature', type=float, help='Softmax temperature', default=0.05)
     parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
     parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
