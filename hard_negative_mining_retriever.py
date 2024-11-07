@@ -520,7 +520,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, help='Learning rate is not used in this code', default=3e-4)
     parser.add_argument('--max_lr', type=float, help='Max learning rate', default=5e-4)
     parser.add_argument('--min_lr', type=float, help='Min learning rate', default=5e-5)
-    parser.add_argument('--temperature', type=float, help='Softmax temperature', default=0.02)
+    parser.add_argument('--temperature', type=float, help='Softmax temperature', default=0.05)
     parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
     parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
     parser.add_argument('--total_step', type=int, help='Total step', default=100)
