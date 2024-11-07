@@ -56,7 +56,7 @@ if torch.cuda.is_available():
 # --- Dataset ---
 
 def create_query_text(subject_name, construct_name, question_text, correct_answer, incorrect_answer) -> str:
-    return f'Instruct: Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception.\nQuery: \n### Question ###:\n{subject_name}, {construct_name}\n{question_text}\n### Correct Answer ###:\n{correct_answer}\n### Incorrect Answer ###:\n{incorrect_answer}'
+    return f'Instruct: Given a math question and an incorrect answer, please retrieve the most accurate reason for the misconception.\nQuery: \n### Question ###:\n{subject_name}, {construct_name}\n{question_text}\n### Correct Answer ###:\n{correct_answer}\n### Incorrect Answer ###:\n{incorrect_answer}'
 
 class MyDataLoader:
     def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, rank, folds, supplemental_batch_size=None, seed=42):
@@ -156,7 +156,7 @@ class MyDataLoader:
 
 # --- Model ---
 class MyEmbeddingModel(nn.Module):
-    def __init__(self, model_name):
+    def __init__(self, model_name, temperature):
         super().__init__()
         bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -185,7 +185,7 @@ class MyEmbeddingModel(nn.Module):
         self.embed_model.print_trainable_parameters()
         # self.embed_model.gradient_checkpointing_enable()
 
-        self.temperature = 0.2
+        self.temperature = temperature
 
     def last_token_pool(self, last_hidden_states: Tensor,
                         attention_mask: Tensor) -> Tensor:
@@ -218,7 +218,7 @@ class MyEmbeddingModel(nn.Module):
             batch_text = self.encode(batch_text)
             return batch_text
 
-        if master_process:
+        if master_process and args.visualize != 0:
             visualize.visualize(batch_text['input_ids'].cpu())
             visualize.visualize(batch_mis['input_ids'].cpu())
         batch_text = self.encode(batch_text)
@@ -520,6 +520,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, help='Learning rate is not used in this code', default=3e-4)
     parser.add_argument('--max_lr', type=float, help='Max learning rate', default=5e-4)
     parser.add_argument('--min_lr', type=float, help='Min learning rate', default=5e-5)
+    parser.add_argument('--temperature', type=float, help='Softmax temperature', default=0.02)
     parser.add_argument('--grad_accum', type=int, help='Gradient accumulation', default=16)
     parser.add_argument('--warmup_steps', type=int, help='Warmup steps', default=10)
     parser.add_argument('--total_step', type=int, help='Total step', default=100)
@@ -530,6 +531,7 @@ def parse_args():
     parser.add_argument('--reset_hard_examples_interval', type=int, help='Reset hard examples', default=200)
     parser.add_argument('--hard_example_path', type=str, help='Hard example path', default=None)
     parser.add_argument('--lora_r', type=int, help='Lora rank', default=32)
+    parser.add_argument('--visualize', type=int, help='visualze', default=0)
     parser.add_argument('--exp_id', type=str, required=True, help='Experiment id')
     return parser.parse_args()
 
@@ -548,8 +550,8 @@ def print_args():
     print(f'------ Args are saved to {save_path}/args.csv ------')
 
 def main():
-    visualize.set_tokenizer(args.model_name)
-    model = MyEmbeddingModel(args.model_name)
+    if args.visualize: visualize.set_tokenizer(args.model_name)
+    model = MyEmbeddingModel(args.model_name, args.temperature)
     model = model.to(device)
     assert args.batch_size % ddp_world_size == 0
     dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv',
