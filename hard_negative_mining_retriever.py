@@ -22,6 +22,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import metrics
 import utils
+import visualize
 
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
@@ -218,6 +219,9 @@ class MyEmbeddingModel(nn.Module):
 
         batch_text = self.encode(batch_text)
         batch_mis = self.encode(batch_mis)
+        if master_process:
+            visualize(batch_text)
+            visualize(batch_mis)
         if ddp:
             batch_text = ddp_sync_concat_tensor(batch_text)
             batch_mis = ddp_sync_concat_tensor(batch_mis)
