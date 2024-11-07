@@ -202,16 +202,10 @@ class MyEmbeddingModel(nn.Module):
         x = self.last_token_pool(x1.last_hidden_state, x['attention_mask'])
         return x.contiguous()
 
-    def compute_similarity(self, a, b, eps=1e-8):
-        # https://stackoverflow.com/questions/50411191/how-to-compute-the-cosine-similarity-in-pytorch-for-all-rows-in-a-matrix-with-re
-        a_n, b_n = a.norm(dim=1)[:, None], b.norm(dim=1)[:, None]
-        a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
-        b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
-        # a_norm = a # normalize to normal vector here might not be the best choice
-        # b_norm = b # model will be unable to represent the different in signifance in the softmax
-                     # operation because sim is capped at (0, 1), we want to uncap it
-        sim_mt = torch.mm(a_norm, b_norm.transpose(0, 1))
-        return sim_mt
+    def compute_similarity(self, q_reps, p_reps):
+        if len(p_reps.size()) == 2:
+            return torch.matmul(q_reps, p_reps.transpose(0, 1))
+        return torch.matmul(q_reps, p_reps.transpose(-2, -1))
 
     def forward(self, batch_text, batch_mis=None):
         if not self.training:
@@ -221,8 +215,8 @@ class MyEmbeddingModel(nn.Module):
         if master_process and args.visualize != 0:
             visualize.visualize(batch_text['input_ids'].cpu())
             visualize.visualize(batch_mis['input_ids'].cpu())
-        batch_text = self.encode(batch_text)
-        batch_mis = self.encode(batch_mis)
+        batch_text = F.normalize(self.encode(batch_text), p=2, dim=-1)
+        batch_mis = F.normalize(self.encode(batch_mis), p=2, dim=-1)
         if ddp:
             batch_text = ddp_sync_concat_tensor(batch_text)
             batch_mis = ddp_sync_concat_tensor(batch_mis)
