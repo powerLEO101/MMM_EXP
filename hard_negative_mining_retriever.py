@@ -547,7 +547,7 @@ def print_args():
     print(f'------ Args are saved to {save_path}/args.csv ------')
 
 def main():
-    visualze.set_tokenizer(args.model_name)
+    visualize.set_tokenizer(args.model_name)
     model = MyEmbeddingModel(args.model_name)
     model = model.to(device)
     assert args.batch_size % ddp_world_size == 0
