@@ -108,6 +108,7 @@ class MyDataLoader:
         actual_batch_size = int(self.batch_size / ddp_world_size)
         batch_text = batch_text[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
         batch_mis = batch_mis[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
+        batch_index = batch_index[self.rank * actual_batch_size : (self.rank + 1) * actual_batch_size]
 
         # should not sample distractions in batch because some misconception never appear in training data
         supplemental_misconceptions = []
