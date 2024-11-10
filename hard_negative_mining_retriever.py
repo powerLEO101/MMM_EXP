@@ -156,7 +156,7 @@ class MyDataLoader:
 
 # --- Model ---
 class MyEmbeddingModel(nn.Module):
-    def __init__(self, model_name, temperature):
+    def __init__(self, model_name, temperature, init_lora=True):
         super().__init__()
         bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -165,24 +165,25 @@ class MyEmbeddingModel(nn.Module):
                 bnb_4bit_compute_dtype=torch.bfloat16
                 )
         self.embed_model = AutoModel.from_pretrained(model_name, quantization_config=bnb_config)
-        config = LoraConfig(
-            r=args.lora_r,
-            lora_alpha=args.lora_r * 1.4,
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-            bias="none",
-            lora_dropout=0.05,  # Conventional
-            task_type="FEATURE_EXTRACTION", 
-        )
-        self.embed_model = get_peft_model(self.embed_model, config)
-        self.embed_model.print_trainable_parameters()
+        if init_lora:
+            config = LoraConfig(
+                r=args.lora_r,
+                lora_alpha=args.lora_r * 1.4,
+                target_modules=[
+                    "q_proj",
+                    "k_proj",
+                    "v_proj",
+                    "o_proj",
+                    "gate_proj",
+                    "up_proj",
+                    "down_proj",
+                ],
+                bias="none",
+                lora_dropout=0.05,  # Conventional
+                task_type="FEATURE_EXTRACTION", 
+            )
+            self.embed_model = get_peft_model(self.embed_model, config)
+            self.embed_model.print_trainable_parameters()
         # self.embed_model.gradient_checkpointing_enable()
 
         self.temperature = temperature
