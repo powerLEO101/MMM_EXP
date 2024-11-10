@@ -195,7 +195,6 @@ def get_all_embeddings(model, dataloader):
         text_embedding = model(batch_text)
 
         text_embedding = ddp_sync_concat_tensor(text_embedding).cpu()
-        batch_label = ddp_sync_concat_tensor(batch_label).cpu()
         text_embeddings.append(text_embedding)
     text_embeddings = torch.cat(text_embeddings, dim=0)
     if master_process: print(f'Embedding text took {time() - time_start} s')
