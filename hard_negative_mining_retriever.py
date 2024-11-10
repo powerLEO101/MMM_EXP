@@ -210,7 +210,6 @@ class MyEmbeddingModel(nn.Module):
 
     def forward(self, batch_text, batch_mis=None):
         if not self.training:
-            batch_text = self.encode(batch_text)
             batch_text = F.normalize(self.encode(batch_text), p=2, dim=-1)
             return batch_text
 
