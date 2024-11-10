@@ -30,6 +30,36 @@ def parse_args():
     parser.add_argument('--model_name', type=str, required=True)
     return parser.parse_args()
 
+ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
+if ddp:
+    # use of DDP atm demands CUDA, we set the device appropriately according to rank
+    assert torch.cuda.is_available(), "for now i think we need CUDA for DDP"
+    init_process_group(backend='nccl')
+    ddp_rank = int(os.environ['RANK'])
+    ddp_local_rank = int(os.environ['LOCAL_RANK'])
+    ddp_world_size = int(os.environ['WORLD_SIZE'])
+    device = f'cuda:{ddp_local_rank}'
+    torch.cuda.set_device(device)
+    master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
+else:
+    # vanilla, non-DDP run
+    ddp_rank = 0
+    ddp_local_rank = 0
+    ddp_world_size = 1
+    master_process = True
+    # attempt to autodetect device
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    print(f"using device: {device}")
+
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(1337)
+
+
 # --- Stage 1 ---
 
 import sys
@@ -48,7 +78,8 @@ class MyDataLoader:
         train_df = pd.read_csv(train_df_path) # can also be eval, but naming doesnt matter
         train_df['fold'] = train_df['QuestionId'].apply(lambda x : x % 5)
         train_df = train_df[train_df['fold'].isin(folds)]
-        misconceptions = pd.read_csv(misconceptions_path)
+        # misconceptions = pd.read_csv(misconceptions_path)
+        misconceptions = pd.read_csv(misconceptions_path).head(20)
         train_df['correct_answer_text'] = train_df.apply(lambda x : x[f"Answer{x['CorrectAnswer']}Text"], axis=1)
         self.data = []
         for idx, row in train_df.iterrows():
@@ -137,11 +168,29 @@ class MyDataLoader:
 
 # --- 
 
+def move_to_device(x, device):
+    if isinstance(x, dict):
+        return {k : v.to(device) for k, v in x.items()}
+    elif isinstance(x, list):
+        return [v.to(device) for v in x]
+    else:
+        return x.to(device)
+
+def ddp_sync_concat_tensor(x, dim=0):
+    if not ddp:
+        return x
+    tensor_list = [torch.zeros_like(x, device=device) for _ in range(ddp_world_size)]
+    dist.all_gather(tensor_list, x)
+    tensor_list[ddp_rank] = x # !! replace the current rank tensor with the given one so it has grad
+    tensor_list = torch.cat(tensor_list, dim=dim)
+    return tensor_list
+
+@torch.no_grad()
 def get_all_embeddings(model, dataloader):
     if master_process: print('--- Get all embeddings ---')
     time_start = time()
-    text_embeddingst = []
-    for batch_text, batch_label in dataloader.all_text():
+    text_embeddings = []
+    for batch_text in dataloader.all_text():
         batch_text = move_to_device(batch_text, device)
         text_embedding = model(batch_text)
 
@@ -162,13 +211,25 @@ def get_all_embeddings(model, dataloader):
     if master_process: print(f'Embedding misconceptions took {time() - time_start} s')
 
     text_embeddings = text_embeddings[ : len(dataloader.data)]
-    all_targets = all_targets[ : len(dataloader.data)]
     mis_embeddings = mis_embeddings[ : len(dataloader.misconceptions)]
+    return text_embeddings, mis_embeddings
+
+# --- 
+
+dataloader = MyDataLoader(train_df_path='test.csv',
+                          misconceptions_path='misconception_mapping.csv',
+                          batch_size=16,
+                          model_name=args.model_name,
+                          rank=ddp_rank,
+                          folds=[0, 1, 2, 3, 4])
+text_embeddings, mis_embeddings = get_all_embeddings(model, dataloader)
+
+print(text_embeddings)
 
 # --- Stage 2 ---
-from vllm import LLM, SamplingParams
-from vllm.lora.request import LoRARequest
-
-llm = LLM(model="meta-llama/Llama-2-7b-hf", enable_lora=True)
+# from vllm import LLM, SamplingParams
+# from vllm.lora.request import LoRARequest
+# 
+# llm = LLM(model="meta-llama/Llama-2-7b-hf", enable_lora=True)
 
 # --- End ---
