@@ -250,6 +250,7 @@ gc.collect()
 
 if master_process:
     torch.save(top25_ids, 'top25_ids.pt')
-    torch.save(dataloader, 'dataloader.pt')
+    torch.save(dataloader.data, 'data.pt')
+    torch.save(dataloder.misconceptions, 'misconceptions.pt')
 
 # --- End ---
