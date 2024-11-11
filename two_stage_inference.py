@@ -68,7 +68,7 @@ sys.path.append('/media/workspace/MMM_EXP')
 from hard_negative_mining_retriever import MyEmbeddingModel
 
 model = MyEmbeddingModel(args.model_name, 1, False)
-# model.embed_model.load_adapter(args.adapter_path)
+model.embed_model.load_adapter(args.adapter_path)
 model.eval()
 
 def create_query_text(subject_name, construct_name, question_text, correct_answer, incorrect_answer) -> str:
@@ -216,8 +216,8 @@ def get_all_embeddings(model, dataloader):
 
 # --- 
 
-dataloader = MyDataLoader(train_df_path='test.csv',
-                          misconceptions_path='misconception_mapping.csv',
+dataloader = MyDataLoader(train_df_path=f'{args.base_path}/test.csv',
+                          misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                           batch_size=8,
                           model_name=args.model_name,
                           rank=ddp_rank,
