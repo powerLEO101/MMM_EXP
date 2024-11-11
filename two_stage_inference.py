@@ -60,6 +60,7 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
+args = parse_args()
 
 # --- Stage 1 ---
 
