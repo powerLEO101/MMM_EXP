@@ -49,7 +49,7 @@ def main():
             text = create_query_text(row['subject_name'], row['construct_name'], row['question_text'], misconceptions.iloc[i]['MisconceptionName'], row['correct_answer'], row['incorrect_answer'])
             prompts.append(text)
 
-    llm = vllm.LLM(
+    llm = LLM(
         "Qwen/Qwen2.5-32B-Instruct-AWQ",
         quantization="awq",
         tensor_parallel_size=2,
