@@ -56,7 +56,7 @@ if torch.cuda.is_available():
 # --- Dataset ---
 
 def create_query_text(subject_name, construct_name, question_text, correct_answer, incorrect_answer) -> str:
-    return f'Instruct: Given a math question and an incorrect answer, please retrieve the most accurate reason for the misconception.\nQuery: \n### Question ###:\n{subject_name}, {construct_name}\n{question_text}\n### Correct Answer ###:\n{correct_answer}\n### Incorrect Answer ###:\n{incorrect_answer}'
+    return f'Instruct: Given a math question and an incorrect answer, please retrieve the most accurate misconception for the incorrect answer.\nQuery: \n### Question ###:\n{subject_name}, {construct_name}\n{question_text}\n### Correct Answer ###:\n{correct_answer}\n### Incorrect Answer ###:\n{incorrect_answer}'
 
 class MyDataLoader:
     def __init__(self, train_df_path, misconceptions_path, batch_size, model_name, rank, folds, supplemental_batch_size=None, seed=42):

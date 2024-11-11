@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument('--base_path', type=str, required=True)
     parser.add_argument('--adapter_path', type=str, required=True)
     parser.add_argument('--model_name', type=str, required=True)
+    parser.add_argument('--rerank', type=int, default=1)
     return parser.parse_args()
 
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
@@ -79,15 +80,15 @@ class MyDataLoader:
         train_df['fold'] = train_df['QuestionId'].apply(lambda x : x % 5)
         train_df = train_df[train_df['fold'].isin(folds)]
         # misconceptions = pd.read_csv(misconceptions_path)
-        misconceptions = pd.read_csv(misconceptions_path).head(20)
+        misconceptions = pd.read_csv(misconceptions_path)
         train_df['correct_answer_text'] = train_df.apply(lambda x : x[f"Answer{x['CorrectAnswer']}Text"], axis=1)
         self.data = []
         for idx, row in train_df.iterrows():
             for choice in ['A', 'B', 'C', 'D']:
                 if choice == row['CorrectAnswer']: continue
                 query_text = create_query_text(row['SubjectName'], row['ConstructName'], row['QuestionText'], row['correct_answer_text'], row[f'Answer{choice}Text'])
-                self.data.append([idx, choice, query_text])
-        self.data = pd.DataFrame(self.data, columns=['id', 'choice', 'text'])
+                self.data.append([row['QuestionId'], choice, query_text, row['SubjectName'], row['ConstructName'], row['QuestionText'], row['correct_answer_text'], row[f'Answer{choice}Text']])
+        self.data = pd.DataFrame(self.data, columns=['id', 'choice', 'text', 'subject_name', 'construct_name', 'question_text', 'correct_answer', 'incorrect_answer'])
 
         self.batch_size = batch_size
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -217,18 +218,74 @@ def get_all_embeddings(model, dataloader):
 
 dataloader = MyDataLoader(train_df_path='test.csv',
                           misconceptions_path='misconception_mapping.csv',
-                          batch_size=16,
+                          batch_size=8,
                           model_name=args.model_name,
                           rank=ddp_rank,
-                          folds=[0, 1, 2, 3, 4])
+                          folds=[4])
 text_embeddings, mis_embeddings = get_all_embeddings(model, dataloader)
+scores = model.compute_similarity(text_embeddings, mis_embeddings) # (len text, len mis)
+top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
+top25_ids = top_scores[:, : 25]
 
-print(text_embeddings)
+
+if not args.rerank:
+    submission = []
+    for idx, row in dataloader.data.iterrows():
+        real_id = f"{row['id']}_{row['choice']}"
+        submission.append([real_id, ' '.join([str(x) for x in top25_ids[idx].tolist()])])
+    submission = pd.DataFrame(submission, columns=['QuestionId_Answer', 'MisconceptionId'])
+    submission.to_csv('submission.csv', index=False)
+    import sys
+    sys.exit(0)
+    
+del model
+torch.cuda.empty_cache()
+import gc
+gc.collect()
 
 # --- Stage 2 ---
-# from vllm import LLM, SamplingParams
-# from vllm.lora.request import LoRARequest
-# 
-# llm = LLM(model="meta-llama/Llama-2-7b-hf", enable_lora=True)
 
+from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
+
+def create_query_text(subject_name, construct_name, question_text, mis_name, correct_answer, incorrect_answer) -> str:
+    prompt = (
+        '### Instruction:\n'
+        'You are a math tutor for novice math learners. You are presented with the following math problem in the field of {}, {}. You are given a correct answer and an incorrect answer.\n'
+        'Is the incorrect answer incorrect because of the misconception of {}? Answer only with Yes or No.\n'
+        'Question: {}\n'
+        'Correct answer: {}\n'
+        'Incorrect answer: {}\n'
+        '### Answer:\n'
+    )
+    return prompt.format(subject_name, construct_name, mis_name, question_text, correct_answer, incorrect_answer)
+
+prompts = []
+for idx, row in dataloader.data.iterrows():
+    for i in top25_ids[idx].tolist():
+        text = create_query_text(row['subject_name'], row['construct_name'], row['question_text'], dataloader.misconceptions.iloc[i]['MisconceptionName'], row['correct_answer'], row['incorrect_answer'])
+        prompts.append(text)
+
+llm = LLM(model="Qwen/Qwen2.5-32B-Instruct-AWQ", enable_lora=True, tensor_parallel_size=2)
+
+# --- 
+sampling_params = SamplingParams(max_tokens=1, logprobs=20)
+result = llm.generate(prompts, sampling_params)
+rerank_score = [x.outputs[0].logprobs[0][9454].logprob if 9454 in x.outputs[0].logprobs[0] else -100 for x in result]
+
+# --- 
+
+def rerank_submission(ids, scores):
+    reranks = np.argsort(scores)[::-1]
+    new_ids = [ids[x] for x in reranks]
+    return new_ids
+
+rerank_top25_ids = [rerank_submission(top25_ids[i].tolist(), rerank_score[i * 25 : (i + 1) * 25]) for i in range(len(top25_ids))]
+
+submission = []
+for idx, row in dataloader.data.iterrows():
+    real_id = f"{row['id']}_{row['choice']}"
+    submission.append([real_id, ' '.join([str(x) for x in rerank_top25_ids[idx]])])
+submission = pd.DataFrame(submission, columns=['QuestionId_Answer', 'MisconceptionId'])
+submission.to_csv('submission.csv', index=False)
 # --- End ---
