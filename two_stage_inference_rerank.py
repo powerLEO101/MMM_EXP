@@ -49,7 +49,18 @@ def main():
             text = create_query_text(row['subject_name'], row['construct_name'], row['question_text'], misconceptions.iloc[i]['MisconceptionName'], row['correct_answer'], row['incorrect_answer'])
             prompts.append(text)
 
-    llm = LLM(model="Qwen/Qwen2.5-32B-Instruct-AWQ", enable_lora=True, tensor_parallel_size=2)
+    llm = vllm.LLM(
+        "Qwen/Qwen2.5-32B-Instruct-AWQ",
+        quantization="awq",
+        tensor_parallel_size=2,
+        gpu_memory_utilization=0.90, 
+        trust_remote_code=True,
+        dtype="half", 
+        enforce_eager=True,
+        max_model_len=5120,
+        disable_log_stats=True,
+        enable_lora=True
+    )
 
     sampling_params = SamplingParams(max_tokens=1, logprobs=20)
     result = llm.generate(prompts, sampling_params)
