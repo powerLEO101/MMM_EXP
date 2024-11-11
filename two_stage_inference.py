@@ -29,7 +29,11 @@ def parse_args():
     parser.add_argument('--adapter_path', type=str, required=True)
     parser.add_argument('--model_name', type=str, required=True)
     parser.add_argument('--rerank', type=int, default=1)
-    return parser.parse_args()
+    parser.add_argument('--cv', type=int, default=1)
+    parser.add_argument('--folds', type=str, default='4')
+    args = parser.parse_args()
+    args.folds = [int(x) for x in args.folds.split(' ')]
+    return args
 
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
@@ -217,7 +221,7 @@ def get_all_embeddings(model, dataloader):
 
 # --- 
 
-dataloader = MyDataLoader(train_df_path=f'{args.base_path}/test.csv',
+dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv' if args.cv else f'{args.base_path}/test.csv',
                           misconceptions_path=f'{args.base_path}/misconception_mapping.csv',
                           batch_size=8,
                           model_name=args.model_name,
