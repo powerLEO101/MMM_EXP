@@ -65,7 +65,7 @@ if torch.cuda.is_available():
 
 import sys
 sys.path.append('/media/workspace/MMM_EXP')
-from hard_negative_mining_retriever import MyEmbeddingModel
+from embedding_model import MyEmbeddingModel
 
 model = MyEmbeddingModel(args.model_name, 1, False)
 model.embed_model.load_adapter(args.adapter_path)
