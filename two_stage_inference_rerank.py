@@ -18,7 +18,8 @@ from peft import (
     set_peft_model_state_dict,
 )
 import bitsandbytes as bnb
-from torch.distributed import init_process_group, destroy_process_group from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group 
+from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import argparse
 from vllm import LLM, SamplingParams
