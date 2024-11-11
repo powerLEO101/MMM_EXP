@@ -226,7 +226,7 @@ dataloader = MyDataLoader(train_df_path=f'{args.base_path}/train.csv' if args.cv
                           batch_size=8,
                           model_name=args.model_name,
                           rank=ddp_rank,
-                          folds=[4])
+                          folds=args.folds,)
 text_embeddings, mis_embeddings = get_all_embeddings(model, dataloader)
 scores = model.compute_similarity(text_embeddings, mis_embeddings) # (len text, len mis)
 top_scores = torch.argsort(scores, dim=-1, descending=True) # all_text, all_mis in id
